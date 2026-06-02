@@ -727,6 +727,6 @@
 };
 
 #include "p410ae/cust.dtsi"
-#include "mediatek/cust_mt6765_camera_p410ae.dtsi"
-#include "mediatek/cust_mt6765_touch_1600x720.dtsi"
+#include "mediatek/cust_mt6765_camera_mid7021.dtsi"
+#include "mediatek/cust_mt6765_touch_mid7021.dtsi"
 /*End of this file, DO NOT ADD ANYTHING HERE*/

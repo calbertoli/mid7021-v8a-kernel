@@ -7,20 +7,14 @@
 #include "eeprom_i2c_common_driver.h"
 #include "eeprom_i2c_custom_driver.h"
 #include "kd_imgsensor.h"
-extern unsigned int s5k4h7_read_region(struct i2c_client *client,unsigned int addr,unsigned char *data, unsigned int size);
 extern unsigned int gc02m1_read_region(struct i2c_client *client,unsigned int addr,unsigned char *data, unsigned int size);
-extern unsigned int s5k4h7sub_read_region(struct i2c_client *client,unsigned int addr,unsigned char *data, unsigned int size);
-extern unsigned int gc2m1b_read_region(struct i2c_client *client,unsigned int addr,unsigned char *data, unsigned int size);
 
 struct stCAM_CAL_LIST_STRUCT g_camCalList[] = {
 	/*Below is commom sensor */
 	{HI1634_QT_P411BE_SENSOR_ID, 0xA0, Common_read_region},
 	{S5KJN1_QT_P410AE_SENSOR_ID, 0xA0, Common_read_region},
 	{HI1634_QT_P410AE_SENSOR_ID, 0xA2, Common_read_region},	
-        {GC2M1B_TSP_P410AE_SENSOR_ID, 0x00, gc2m1b_read_region},
-	{S5K4H7WIDE_QT_P410AE_SENSOR_ID, 0x00, s5k4h7_read_region},
 	{GC02M1_TSP_P410AE_SENSOR_ID, 0x00, gc02m1_read_region},
-	{S5K4H7SUB_QT_P410AE_SENSOR_ID,0x00,s5k4h7sub_read_region},
 	{IMX230_SENSOR_ID, 0xA0, Common_read_region},
 	{S5K2T7SP_SENSOR_ID, 0xA4, Common_read_region},
 	{IMX338_SENSOR_ID, 0xA0, Common_read_region},

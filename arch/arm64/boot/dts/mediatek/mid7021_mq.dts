@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * mid7021_mq.dts — Onn 100135924 (mid7021_mq), MediaTek MT6765
+ *
+ * ARM64 board overlay scaffold for the v7a->v8a migration.
+ * Modeled on the proven p410ae.dts overlay pattern in this tree, but stripped
+ * to ONLY what the live device DTS (kernel_work/mid7021_analysis/mid7021_live.dts)
+ * actually confirms. Do NOT add p410ae phone peripherals back without evidence.
+ *
+ * STATUS: UNVALIDATED SCAFFOLD. This is finalized through the build loop in
+ * tools/build_arm64_kernel.sh — let compiler/dtc errors drive the include
+ * wiring and node corrections. See MID7021_ARM64_DTS_PLAN_2026-05-31.md.
+ *
+ * Confirmed from live DTS:
+ *   - SoC: mediatek,MT6765, 8x Cortex-A53
+ *   - PMIC/charger/gauge: mt6357 (PMIC-integrated) — NO external mt6370/typec
+ *   - Touch: goodix,touch on spi3
+ *   - Connectivity: mt6765-consys (built-in wifi/bt)
+ *   - androidboot.hardware=mt6765
+ * Intentionally OMITTED (Motorola-only, absent on this tablet):
+ *   - mt6370 PMU / mt6370_typec / mt6370_chg
+ *   - fingerprint: spi0 fingerprint@0 / goodix_fp / fpsensor / fp_egistec
+ *   - NFC (sec-nfc), AW9610x SAR, AW87xxx smart-PA, aw36514 flash
+ */
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt6765-pinfunc.h>
+#include <dt-bindings/clock/mt6765-clk.h>
+
+/dts-v1/;
+/plugin/;
+
+/* chosen ----------------------------------------------------------------- *
+ * On a real boot, LK detects the panel and passes videolfb-lcmname at
+ * runtime. These are FPGA/no-LK fallbacks only.
+ * TODO(panel): set lcmname to the mid7021 LCM driver name once the panel
+ * driver is sourced. Candidates from defconfig CONFIG_CUSTOM_KERNEL_LCM:
+ *   SAT070HK30I21Y03  MJT070032M  F070A67_601  RS070WS105A4
+ * Panel geometry per defconfig: 600x1024, physical rotation 270 (=> 1024x600
+ * landscape).
+ */
+&chosen {
+	atag,videolfb-islcmfound = <1>;
+	atag,videolfb-islcm_inited = <0>;
+	/* atag,videolfb-lcmname = "TODO_mid7021_panel_drv"; */
+};
+
+/* LCD backlight ---------------------------------------------------------- *
+ * TODO(backlight): the tablet has a backlight, but the enable/PWM GPIOs are
+ * NOT yet confirmed. p410ae used GPIO175/150/169 — DO NOT assume those here;
+ * toggling wrong GPIOs can mis-drive the panel. Extract the real backlight
+ * GPIO/PWM nodes from mid7021_live.dts before enabling, then add the
+ * &lcm_pins_bl_en / &pio pin groups that the LCM driver expects.
+ */
+
+/* Audio ------------------------------------------------------------------ *
+ * TODO(audio): confirm speaker amp from live DTS. p410ae used AWINIC AW87xxx
+ * on i2c3 + I2S3 routing — likely different (or internal class-D via mt6357)
+ * on this tablet. Leave amp out until confirmed; mt6357 codec comes from base.
+ */
+
+/* Board peripheral dtsis (these ARE correct for mid7021) ----------------- */
+#include "mediatek/cust_mt6765_camera_mid7021.dtsi"
+#include "mediatek/cust_mt6765_touch_mid7021.dtsi"
+/* End of file, DO NOT ADD ANYTHING HERE */

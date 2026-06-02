@@ -1088,6 +1088,7 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 
 	DISPFUNC();
 	DISPCHECK("plcm_name=%s is_lcm_inited %d\n", plcm_name, is_lcm_inited);
+	pr_err("[DISP][HEADLESS] LK plcm_name=%s\n", plcm_name);
 
 #if defined(MTK_LCM_DEVICE_TREE_SUPPORT)
 	if (check_lcm_node_from_DT() == 0) {
@@ -1171,8 +1172,12 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 	}
 
 	if (isLCMFound == false) {
-		DISPERR("FATAL ERROR!!!No LCM Driver defined\n");
-		return NULL;
+		pr_err("[DISP][HEADLESS] LCM not matched; fallback to stub %s\n",
+			lcm_driver_list[0]->name);
+		lcm_drv = lcm_driver_list[0];
+		lcmindex = 0;
+		isLCMInited = false;
+		isLCMFound = true;
 	}
 
 	plcm = kzalloc(sizeof(uint8_t *) *

@@ -1564,8 +1564,8 @@ static void u2_phy_instance_set_mode(struct mtk_tphy *tphy,
 		const char *sku = of_get_property(firmware, "software.sku", NULL);
 		of_node_put(firmware);
 
-		if (!strcmp(sku, "RF2-SKU10")
-			|| !strcmp(sku, "RF2-SKU11")) {
+		if (sku && (!strcmp(sku, "RF2-SKU10")
+			|| !strcmp(sku, "RF2-SKU11"))) {
 			is_p412 = 1;
 		}
 		pr_info("software.sku=%s is_p412=%d\n", sku, is_p412);
