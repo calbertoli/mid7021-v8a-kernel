@@ -1,5 +1,7 @@
-/* STUB LCM for SAT070HK30I21Y03 -- TEMPORARY build-validation placeholder (renamed copy of ili9881h_v770_hdplus_dsi_vdo_txd).
-   REPLACE with genuine Tinno panel source. Wrong timings; for build/boot bring-up only. */
+/* SAT070HK30I21Y03 panel driver for MID7021 (1024x600, 4-lane MIPI-DSI burst, RGB888).
+ * DSI init/suspend tables + timing reverse-engineered from the stock 32-bit kernel
+ * (LCM_DRIVER @ VA 0xc1ac9828; init table @ 0xc1ac18cc, 60 entries; suspend @ 0xc1ac402c).
+ * Power/reset/KTZ8864-backlight sequencing retained from the board bring-up driver. */
 #ifndef BUILD_LK
 #include <linux/string.h>
 #include <linux/kernel.h>
@@ -52,15 +54,15 @@
 //  Local Constants
 // ---------------------------------------------------------------------------
 
-#define FRAME_WIDTH  (600)
-#define FRAME_HEIGHT (1024)
-#define VIRTUAL_WIDTH	(600)
-#define VIRTUAL_HEIGHT	(1024)
+#define FRAME_WIDTH  (1024)
+#define FRAME_HEIGHT (600)
+#define VIRTUAL_WIDTH	(1024)
+#define VIRTUAL_HEIGHT	(600)
 
 /* physical size in um */
-#define LCM_PHYSICAL_WIDTH (68000)
-#define LCM_PHYSICAL_HEIGHT (152000)
-#define LCM_DENSITY	(290)
+#define LCM_PHYSICAL_WIDTH (154000)
+#define LCM_PHYSICAL_HEIGHT (90000)
+#define LCM_DENSITY	(170)
 //static struct LCM_DSI_MODE_SWITCH_CMD lcm_switch_mode_cmd;
 
 // ---------------------------------------------------------------------------
@@ -124,13 +126,11 @@ struct LCM_setting_table
 };
 
 static struct LCM_setting_table  lcm_deep_sleep_mode_in_setting_v2[] = {
-    // Display off sequence
-    {0x28, 1, {0x00}},
-    {REGFLAG_DELAY, 10, {}},
-
-    // Sleep Mode On
-    {0x10, 1, {0x00}},
-    {REGFLAG_DELAY, 60, {}},
+	{0x28, 0, {}},
+	{REGFLAG_DELAY, 20, {}},
+	{0x10, 0, {}},
+	{REGFLAG_DELAY, 120, {}},
+	{REGFLAG_END_OF_TABLE, 0x00, {}}
 };
 
 /***
@@ -343,12 +343,66 @@ static struct LCM_setting_table lcm_initialization_setting_v2[] =
 
 static struct LCM_setting_table lcm_initialization_setting[] = 
 {
-{0x11,1,{0x00}},
-{REGFLAG_DELAY, 100,{}},
-{0x29,1,{0x00}},
-{REGFLAG_DELAY, 20,{}},
-{REGFLAG_END_OF_TABLE, 0x00,{}}
-
+	{0x30, 1, {0x00}},
+	{0xF7, 4, {0x49, 0x61, 0x02, 0x00}},
+	{0x30, 1, {0x01}},
+	{0x04, 1, {0x0C}},
+	{0x05, 1, {0x08}},
+	{0x0B, 1, {0x10}},
+	{0x1F, 1, {0x05}},
+	{0x23, 1, {0x38}},
+	{0x28, 1, {0x18}},
+	{0x29, 1, {0x29}},
+	{0x2A, 1, {0x01}},
+	{0x2B, 1, {0x29}},
+	{0x2C, 1, {0x01}},
+	{0x30, 1, {0x02}},
+	{0x00, 1, {0x05}},
+	{0x01, 1, {0x22}},
+	{0x02, 1, {0x08}},
+	{0x03, 1, {0x12}},
+	{0x04, 1, {0x16}},
+	{0x05, 1, {0x64}},
+	{0x06, 1, {0x00}},
+	{0x07, 1, {0x00}},
+	{0x08, 1, {0x78}},
+	{0x09, 1, {0x00}},
+	{0x0A, 1, {0x04}},
+	{0x0B, 11, {0x16, 0x17, 0x0B, 0x0D, 0x0D, 0x0D, 0x11, 0x10, 0x07, 0x07, 0x09}},
+	{0x0C, 11, {0x09, 0x1E, 0x1E, 0x1C, 0x1C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D}},
+	{0x0D, 11, {0x0A, 0x05, 0x0B, 0x0D, 0x0D, 0x0D, 0x11, 0x10, 0x06, 0x06, 0x08}},
+	{0x0E, 11, {0x08, 0x1F, 0x1F, 0x1D, 0x1D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D}},
+	{0x0F, 11, {0x0A, 0x05, 0x0D, 0x0B, 0x0D, 0x0D, 0x11, 0x10, 0x1D, 0x1D, 0x1F}},
+	{0x10, 11, {0x1F, 0x08, 0x08, 0x06, 0x06, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D}},
+	{0x11, 11, {0x16, 0x17, 0x0D, 0x0B, 0x0D, 0x0D, 0x11, 0x10, 0x1C, 0x1C, 0x1E}},
+	{0x12, 11, {0x1E, 0x09, 0x09, 0x07, 0x07, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D}},
+	{0x13, 4, {0x00, 0x00, 0x00, 0x00}},
+	{0x14, 4, {0x00, 0x00, 0x41, 0x41}},
+	{0x15, 4, {0x00, 0x00, 0x00, 0x00}},
+	{0x17, 1, {0x00}},
+	{0x18, 1, {0x85}},
+	{0x19, 2, {0x06, 0x09}},
+	{0x1A, 2, {0x05, 0x08}},
+	{0x1B, 2, {0x0A, 0x04}},
+	{0x26, 1, {0x00}},
+	{0x27, 1, {0x00}},
+	{0x30, 1, {0x06}},
+	{0x12, 14, {0x3F, 0x27, 0x28, 0x35, 0x1B, 0x17, 0x16, 0x13, 0x10, 0x01, 0x23, 0x1B, 0x10, 0x30}},
+	{0x13, 14, {0x3F, 0x27, 0x28, 0x35, 0x1D, 0x18, 0x16, 0x13, 0x10, 0x02, 0x24, 0x1B, 0x10, 0x30}},
+	{0x30, 1, {0x0A}},
+	{0x02, 1, {0x4F}},
+	{0x0B, 1, {0x40}},
+	{0x30, 1, {0x0D}},
+	{0x10, 1, {0x05}},
+	{0x11, 1, {0x0C}},
+	{0x12, 1, {0x05}},
+	{0x13, 1, {0x0C}},
+	{0x30, 1, {0x00}},
+	{0x11, 1, {0x00}},
+	{REGFLAG_DELAY, 120, {}},
+	{0x29, 1, {0x00}},
+	{REGFLAG_DELAY, 20, {}},
+	{REGFLAG_END_OF_TABLE, 0x00, {}}
 };
 
 
@@ -409,7 +463,7 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 		// DSI
 		/* Command mode setting */
 		//1 Three lane or Four lane
-	params->dsi.LANE_NUM				= LCM_THREE_LANE;
+	params->dsi.LANE_NUM				= LCM_FOUR_LANE;
 		//The following defined the fomat for data coming from LCD engine.
 	params->dsi.data_format.color_order = LCM_COLOR_ORDER_RGB;
 	params->dsi.data_format.trans_seq   = LCM_DSI_TRANS_SEQ_MSB_FIRST;
@@ -422,19 +476,23 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 	params->dsi.PS=LCM_PACKED_PS_24BIT_RGB888;
 		
     params->dsi.vertical_sync_active                = 2;
-    params->dsi.vertical_backporch              = 16;
-    params->dsi.vertical_frontporch             = 249;
+    params->dsi.vertical_backporch              = 21;
+    params->dsi.vertical_frontporch             = 12;
 	params->dsi.vertical_active_line = FRAME_HEIGHT; 
 
-    params->dsi.horizontal_sync_active              = 25;
-    params->dsi.horizontal_backporch                = 26;
-    params->dsi.horizontal_frontporch               = 25; 
+    params->dsi.horizontal_sync_active              = 24;
+    params->dsi.horizontal_backporch                = 136;
+    params->dsi.horizontal_frontporch               = 160; 
 	params->dsi.horizontal_active_pixel = FRAME_WIDTH;
     params->dsi.compatibility_for_nvk = 0;
     params->dsi.ssc_disable=1;
     params->dsi.ssc_range=2;
-	params->dsi.PLL_CLOCK=382;
+	params->dsi.PLL_CLOCK=146;
 		
+	params->dsi.cont_clock = 1;
+	params->dsi.clk_lp_per_line_enable = 1;
+	params->dsi.HS_PRPR = 5;
+	params->dsi.word_count = 3072;
 #ifndef BUILD_LK	
 	params->dsi.esd_check_enable = 1; 
 	params->dsi.customization_esd_check_enable = 0;//0:te esd check 1:read register
