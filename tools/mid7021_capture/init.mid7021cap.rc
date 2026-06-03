@@ -1,0 +1,17 @@
+# MID7021 early pre-/data capture (Magisk overlay.d). The arm64 normal boot
+# hangs before /data mounts (likely keymaster/vold at encrypted-/data unlock).
+# This service starts at `on init` (after first-stage mounts /system + /metadata,
+# before the /data latemount) and continuously dumps dmesg to /metadata
+# (unencrypted, early-mounted, shared) so the hang point survives -> read on _a.
+service mid7021cap /system/bin/sh -c "while true; do /system/bin/dmesg > /metadata/mid7021_kmsg.txt 2>/dev/null; getprop > /metadata/mid7021_props.txt 2>/dev/null; sync; sleep 1; done"
+    class core
+    user root
+    group root system log
+    seclabel u:r:magisk:s0
+    oneshot
+
+on init
+    start mid7021cap
+
+on early-init
+    start mid7021cap

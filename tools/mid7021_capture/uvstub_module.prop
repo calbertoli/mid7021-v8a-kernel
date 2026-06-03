@@ -1,0 +1,6 @@
+id=uvstub
+name=MID7021 update_verifier stub
+version=v1
+versionCode=1
+author=mid7021-bringup
+description=Stub /system/bin/update_verifier (hangs on boot_control HAL, blocks zygote-start) so the arm64 boot proceeds. Debug.
