@@ -1665,8 +1665,8 @@ static void kpoc_power_off_check(struct mtk_charger *info)
 	if (boot_mode == 8 || boot_mode == 9) {
 		vbus = get_vbus(info);
 		if (vbus >= 0 && vbus < 2500 && !mtk_is_charger_on(info) && !info->pd_reset) {
-			chr_err("MID7021: KPOC unplug vbus=%d - shutdown SUPPRESSED (debug)\n", vbus);
-			/* kernel_power_off(); MID7021 bring-up: suppressed */
+			chr_err("Unplug Charger/USB in KPOC mode, vbus=%d, shutdown\n", vbus);
+			kernel_power_off();
 		}
 	}
 }

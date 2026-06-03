@@ -190,7 +190,7 @@ enum scp_ipi_status scp_ipi_send(enum ipi_id id, void *buf,
 		/* pr_err("[SCP] %s: %s not enabled, id=%d\n", __func__
 		 *					, core_ids[scp_id], id);
 		 */
-		pr_notice_ratelimited("[SCP] %s: %s not ready\n", __func__,
+		pr_notice("[SCP] %s: %s not ready\n", __func__,
 			core_ids[scp_id]);
 		scp_ipi_desc[id].error_count++;
 		return SCP_IPI_ERROR;
