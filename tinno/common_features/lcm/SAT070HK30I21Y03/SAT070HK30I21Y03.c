@@ -494,7 +494,7 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 	params->dsi.HS_PRPR = 5;
 	params->dsi.word_count = 3072;
 #ifndef BUILD_LK	
-	params->dsi.esd_check_enable = 1; 
+	params->dsi.esd_check_enable = 0; /* MID7021: TE-ESD fails->5-flicker recovery loop; disable */ 
 	params->dsi.customization_esd_check_enable = 0;//0:te esd check 1:read register
 	//params->dsi.lcm_esd_check_table[0].cmd = 0x0A;
 	//params->dsi.lcm_esd_check_table[0].count = 1;
