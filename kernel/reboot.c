@@ -592,33 +592,3 @@ static int __init reboot_setup(char *str)
 	return 1;
 }
 __setup("reboot=", reboot_setup);
-
-/*
- * MID7021 (Onn 100135924) arm64 bring-up DEBUG:
- * The _b arm64 boot resets via a CLEAN reboot (no panic), so AEE never
- * snapshots it and we can't see why normal Android fails to come up.
- * Register a highest-priority reboot notifier that converts that clean
- * reboot into a panic -- forcing AEE/IPANIC to snapshot the full kernel
- * log (incl. the init/userspace messages that triggered the reboot) to
- * the expdb partition for offline analysis. Debug-only; REVERT for prod.
- */
-static int mid7021_capture_reboot_notify(struct notifier_block *nb,
-					 unsigned long action, void *data)
-{
-	panic("MID7021-CAPTURE: reboot requested (action=%lu cmd=%s)\n",
-	      action, data ? (char *)data : "(null)");
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block mid7021_capture_reboot_nb = {
-	.notifier_call = mid7021_capture_reboot_notify,
-	.priority = 0x7fffffff,
-};
-
-static int __init mid7021_capture_reboot_init(void)
-{
-	register_reboot_notifier(&mid7021_capture_reboot_nb);
-	pr_info("MID7021-CAPTURE: reboot-panic notifier armed\n");
-	return 0;
-}
-late_initcall(mid7021_capture_reboot_init);
