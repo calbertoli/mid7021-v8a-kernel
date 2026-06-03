@@ -196,9 +196,25 @@ static void mtk_wdt_init(struct device_node *np,
 	if (np)
 		mtk_wdt_parse_dt(np, wdt_dev);
 
+	/*
+	 * MID7021 (Onn 100135924, MT6765) arm64 bring-up DEBUG:
+	 * Do NOT adopt the bootloader-armed RGU watchdog. The stock LK leaves
+	 * WDT_MODE_EN set expecting userspace to take over kicking; on our
+	 * arm64 bring-up boot stalls before boot-complete, the kernel ping
+	 * worker eventually stops being serviced, and the RGU resets the
+	 * device ~31s in -- before adbd can come up. Disable the HW watchdog
+	 * here so a stalled boot limps far enough to give us adb/logcat.
+	 * AEE IPANIC still captures genuine kernel panics to pstore.
+	 * REVERT THIS FOR PRODUCTION.
+	 */
 	if (readl(wdt_base + WDT_MODE) & WDT_MODE_EN) {
-		set_bit(WDOG_HW_RUNNING, &wdt_dev->status);
-		mtk_wdt_set_timeout(wdt_dev, wdt_dev->timeout);
+		u32 reg = readl(wdt_base + WDT_MODE);
+
+		reg &= ~WDT_MODE_EN;
+		reg |= WDT_MODE_KEY;
+		writel(reg, wdt_base + WDT_MODE);
+		clear_bit(WDOG_HW_RUNNING, &wdt_dev->status);
+		pr_info("mtk_wdt: MID7021 bring-up: bootloader WDT DISABLED\n");
 	}
 }
 
