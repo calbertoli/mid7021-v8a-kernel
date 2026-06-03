@@ -1,0 +1,158 @@
+make: Entering directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl'
+make[1]: Entering directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/out_mid7021_arm64'
+/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/Makefile:448: KBUILD_CFLAGS -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -fshort-wchar -Werror-implicit-function-declaration -Werror=return-type -Wno-format-security -std=gnu89
+  GEN     ./Makefile
+drivers/misc/mediatek/base/power/Kconfig:90:warning: ignoring type redefinition of 'MTK_QOS_FRAMEWORK' from 'tristate' to 'bool'
+drivers/input/touchscreen/mediatek/goodix_berlin_driver/Kconfig:4:warning: ignoring type redefinition of 'TOUCHSCREEN_GOODIX_BRL' from 'bool' to 'tristate'
+drivers/input/fingerprint/ET528/Kconfig:4:warning: ignoring unsupported character ''
+drivers/input/fingerprint/ET528/Kconfig:5:warning: ignoring unsupported character ''
+drivers/input/fingerprint/ET528/Kconfig:6:warning: ignoring unsupported character ''
+drivers/input/fingerprint/ET528/Kconfig:7:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:4:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:5:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:6:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:7:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:8:warning: ignoring unsupported character ''
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/soc/mediatek/Kconfig:7:warning: ignoring type redefinition of 'MTK_CMDQ' from 'bool' to 'tristate'
+tinno/common_features/smartpa/aw87xxx/Kconfig:1:warning: ignoring unsupported character ''
+tinno/common_features/smartpa/aw87xxx/Kconfig:2:warning: ignoring unsupported character ''
+tinno/common_features/smartpa/aw87xxx/Kconfig:3:warning: ignoring unsupported character ''
+tinno/common_features/smartpa/aw87xxx/Kconfig:4:warning: ignoring unsupported character ''
+drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig:19:warning: choice value used outside its choice group
+drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig:28:warning: choice value used outside its choice group
+drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig:16:warning: choice default symbol 'TOUCHSCREEN_HIMAX_INCELL' is not contained in the choice
+#
+# configuration written to .config
+#
+make[1]: Leaving directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/out_mid7021_arm64'
+make: Leaving directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl'
+make: Entering directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl'
+make[1]: Entering directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/out_mid7021_arm64'
+/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/Makefile:448: KBUILD_CFLAGS -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -fshort-wchar -Werror-implicit-function-declaration -Werror=return-type -Wno-format-security -std=gnu89
+../Makefile:448: KBUILD_CFLAGS -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -fshort-wchar -Werror-implicit-function-declaration -Werror=return-type -Wno-format-security -std=gnu89
+  GEN     ./Makefile
+scripts/kconfig/conf  --syncconfig Kconfig
+drivers/misc/mediatek/base/power/Kconfig:90:warning: ignoring type redefinition of 'MTK_QOS_FRAMEWORK' from 'tristate' to 'bool'
+drivers/input/touchscreen/mediatek/goodix_berlin_driver/Kconfig:4:warning: ignoring type redefinition of 'TOUCHSCREEN_GOODIX_BRL' from 'bool' to 'tristate'
+drivers/input/fingerprint/ET528/Kconfig:4:warning: ignoring unsupported character ''
+drivers/input/fingerprint/ET528/Kconfig:5:warning: ignoring unsupported character ''
+drivers/input/fingerprint/ET528/Kconfig:6:warning: ignoring unsupported character ''
+drivers/input/fingerprint/ET528/Kconfig:7:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:4:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:5:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:6:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:7:warning: ignoring unsupported character ''
+drivers/input/aw9610x/Kconfig:8:warning: ignoring unsupported character ''
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/power/supply/mediatek/charger/Kconfig:199:warning: ignoring type redefinition of 'CHARGER_BQ25890' from 'tristate' to 'bool'
+drivers/soc/mediatek/Kconfig:7:warning: ignoring type redefinition of 'MTK_CMDQ' from 'bool' to 'tristate'
+tinno/common_features/smartpa/aw87xxx/Kconfig:1:warning: ignoring unsupported character ''
+tinno/common_features/smartpa/aw87xxx/Kconfig:2:warning: ignoring unsupported character ''
+tinno/common_features/smartpa/aw87xxx/Kconfig:3:warning: ignoring unsupported character ''
+tinno/common_features/smartpa/aw87xxx/Kconfig:4:warning: ignoring unsupported character ''
+drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig:19:warning: choice value used outside its choice group
+drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig:28:warning: choice value used outside its choice group
+drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig:16:warning: choice default symbol 'TOUCHSCREEN_HIMAX_INCELL' is not contained in the choice
+/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/Makefile:448: KBUILD_CFLAGS -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -fshort-wchar -Werror-implicit-function-declaration -Werror=return-type -Wno-format-security -std=gnu89
+  GEN     ./Makefile
+  UPD     include/config/kernel.release
+  UPD     include/generated/utsrelease.h
+  Using .. as source for kernel
+  CALL    ../scripts/checksyscalls.sh
+  CHK     include/generated/compile.h
+  CC      init/version.o
+  CC      kernel/sys.o
+  AR      init/built-in.a
+../drivers/../tinno/common_features/dev_info/Makefile:5: ---[WD]---
+  CC      drivers/base/firmware_loader/fallback_table.o
+  CC      drivers/base/firmware_loader/main.o
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+  AR      drivers/base/firmware_loader/built-in.a
+  AR      drivers/base/built-in.a
+$GED: CONFIG_MTK_PLATFORM is ["mt6765"]
+[GPU_DEBUG] MTK_GPU_VERSION 2 = doma
+[GPU_DEBUG] MTK_PLATFORM = mt6765
+  CC      kernel/trace/trace.o
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+  CC      kernel/module.o
+..
+FDVT: Drv use 4.0 folder
+..
+  GZIP    kernel/config_data.gz
+../drivers/misc/mediatek/ccu/src/Makefile:33: CCU_MAKE_FILE_CALLED
+../drivers/misc/mediatek/ccu/src/1.2/Makefile:28: CCU_INC=../drivers/misc/mediatek/ccu/src/mt6765/ccu_ext_interface
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+../drivers/misc/mediatek/base/power/qos/Makefile:45: extraneous text after 'else' directive
+../drivers/misc/mediatek/base/power/upower_v2/Makefile:33: extraneous text after 'ifeq' directive
+ION:enable mtk ion
+************  drivers/trusty/mtee-kree mk ************
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+xuli add camera  ARCH_MTK_PROJECT: mid7021_mq_32
+sensorlist2 camera_project/mid7021_mq_32/v1 
+xuli platfrom  ../drivers/misc/mediatek/imgsensor/src/mt6765/camera_project/mid7021_mq_32/v1
+../drivers/misc/mediatek/imgsensor/src/mt6765 
+xuli select build custom  imgsensor camera_project/mid7021_mq_32/v1/gc02m1_tsp_p410ae_mipi_raw 
+imgsensor drv by platform ./camera_project/mid7021_mq_32/v1/gc02m1_tsp_p410ae_mipi_raw/
+  CC      drivers/watchdog/mtk_wdt.o
+M4U platform folder:"mt6765"
+M4U version:2.0
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+TCORE_UT_TESTS_SUPPORT = n
+TCORE_PROFILING_SUPPORT = n
+TCORE_PROFILING_AUTO_DUMP = n
+TCORE_MEMORY_LEAK_DETECTION_SUPPORT = n
+  AR      drivers/watchdog/built-in.a
+shaohua
+
+y
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+../drivers/tee/gud/Makefile.include:2: "CONFIG_MTK_PLATFORM: "mt6765""
+../drivers/tee/gud/Makefile.include:3: "CONFIG_TRUSTONIC_TEE_VERSION: "500""
+  AR      drivers/built-in.a
+  AR      kernel/trace/built-in.a
+  AR      kernel/built-in.a
+  GEN     .version
+  CHK     include/generated/compile.h
+  UPD     include/generated/compile.h
+  CC      init/version.o
+  AR      init/built-in.a
+  AR      built-in.a
+  MODPOST vmlinux.o
+WARNING: modpost: Found 19 section mismatch(es).
+To see full details build your kernel with:
+'make CONFIG_DEBUG_SECTION_MISMATCH=y'
+  KSYM    .tmp_kallsyms1.o
+  KSYM    .tmp_kallsyms2.o
+  LD      vmlinux
+  SORTEX  vmlinux
+  SYSMAP  System.map
+  OBJCOPY arch/arm64/boot/Image
+  GZIP    arch/arm64/boot/Image.gz
+make[1]: Leaving directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl/out_mid7021_arm64'
+make: Leaving directory '/home/poca/mid7021/kernel_work/kernel_motorola_hawaiipl'

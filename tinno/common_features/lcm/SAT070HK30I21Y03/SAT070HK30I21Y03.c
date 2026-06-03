@@ -544,98 +544,30 @@ static kal_uint32 lcd_write_byte(kal_uint8 addr, kal_uint8 value)
 static void lcm_init(void)
 {
     LCM_DBG();
-#ifdef BUILD_LK
-    lcd_write_byte(0x0D,0x1E);
-    MDELAY(1);
-    lcd_write_byte(0x0E,0x1E);
-    MDELAY(1);
-    lcd_write_byte(0x09,0x99);
-    MDELAY(1);
-    mt_set_gpio_mode(gpio_bl_enp,GPIO_MODE_00);
-    mt_set_gpio_dir(gpio_bl_enp,GPIO_DIR_OUT);
-    mt_set_gpio_mode(gpio_bl_enn,GPIO_MODE_00);
-    mt_set_gpio_dir(gpio_bl_enn,GPIO_DIR_OUT);
-    mt_set_gpio_out(gpio_bl_enp,GPIO_OUT_ONE);
-    mt_set_gpio_out(gpio_bl_enn,GPIO_OUT_ONE);
-    MDELAY(10);
-    lcd_write_byte(0x02,0x69);
-    MDELAY(1);
-    lcd_write_byte(0x08,0x1F);
-#else //Kernel driver
-    _lcm_i2c_write_bytes(0x0D,0x1E);
-    MDELAY(1);
-    _lcm_i2c_write_bytes(0x0E,0x1E);
-    MDELAY(1);
-    _lcm_i2c_write_bytes(0x09,0x99);
-    MDELAY(1);
-    lcm_enp(1);
-    lcm_enn(1);
-    MDELAY(10);
-    _lcm_i2c_write_bytes(0x02,0x69);
-    MDELAY(1);
-    _lcm_i2c_write_bytes(0x08,0x1F);
-#endif
-#ifdef GPIO_LCM_PWR
-    SET_PWR_PIN(0);
-    MDELAY(20);
-    SET_PWR_PIN(1);
-    MDELAY(150);
-#endif
-    SET_RESET_PIN(1);
-    MDELAY(5);
-    SET_RESET_PIN(0);
-    MDELAY(20);
-    SET_RESET_PIN(1);
-    MDELAY(110);
-    LCM_DBG("debug,lcm reset end \n");
-    push_table(lcm_initialization_setting, sizeof(lcm_initialization_setting) / sizeof(struct LCM_setting_table), 1);
-    LCM_DBG("debug,lcm init end \n");
+    /* Stock kernel lcm_init() does ONLY push_table — LK already powers + resets
+       the panel (confirmed via expdb LK log: "we will use lcm: SAT070HK30I21Y03",
+       "read ID=0x00000056"). The ili9881 stub's KTZ8864 I2C6 writes + lcm_enp/enn
+       + reset pulse are NOT used by this HCN panel and were the likely crash. */
+    push_table(lcm_initialization_setting,
+        sizeof(lcm_initialization_setting) / sizeof(struct LCM_setting_table), 1);
+    LCM_DBG();
 }
 
 static void lcm_suspend(void)
 {
     LCM_DBG();
 #ifndef BUILD_LK
-    //LCM_DBG("geroge suspend bEnTGesture  = %d\n",bEnTGesture);
-
-    push_table(lcm_deep_sleep_mode_in_setting_v2, sizeof(lcm_deep_sleep_mode_in_setting_v2) / sizeof(struct LCM_setting_table), 1);
-
-        //SET_RESET_PIN(1);
-       // SET_RESET_PIN(0);
-       // MDELAY(10); // 1ms
-
-
-    lcm_enp(0);
-    MDELAY(1);
-    lcm_enn(0);
-    MDELAY(1);
-
-      //  SET_RESET_PIN(1);
-     //   MDELAY(50);
-
-
+    push_table(lcm_deep_sleep_mode_in_setting_v2,
+        sizeof(lcm_deep_sleep_mode_in_setting_v2) / sizeof(struct LCM_setting_table), 1);
 #endif
-
 }
 
 static void lcm_resume(void)
 {
-
-#ifndef BUILD_LK
-    //LCM_DBG("geroge resume bEnTGesture  = %d\n",bEnTGesture);
-    lcm_enp(1);
-    MDELAY(1);
-    lcm_enn(1);
-#endif
-    MDELAY(1);
-    SET_RESET_PIN(0);
-    MDELAY(5);
-    SET_RESET_PIN(1);
-    MDELAY(50);
-    push_table(lcm_initialization_setting, sizeof(lcm_initialization_setting) / sizeof(struct LCM_setting_table), 1);
     LCM_DBG();
+    push_table(lcm_initialization_setting,
+        sizeof(lcm_initialization_setting) / sizeof(struct LCM_setting_table), 1);
 }
-  
 
 static unsigned int lcm_compare_id(void)
 {
