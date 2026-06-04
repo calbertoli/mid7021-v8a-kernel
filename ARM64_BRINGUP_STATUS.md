@@ -46,3 +46,17 @@ kernel-side source is **MTK-proprietary** (the original 100071481 BSP):
 - expdb (eMMC) holds LK/GZ + WDT status across power-cycles: `wdt_status 0x2, exp_type 0x0` = HW
   watchdog, no SW exception.
 - Flash arm64 to `boot_a` (mmcblk0p22) via root `dd` while v7a is up; battery-boot (no USB) to avoid KPOC.
+
+## Blocking-hardware manifest (the "hunt" list)
+Both walls are **MT6765 on-die silicon → one vendor: MediaTek**. No discrete 3rd-party chips.
+
+**WALL 1 — Connectivity (WiFi/BT/GPS), all integrated CONNAC1x in MT6765:**
+- combo: `connsys.chipid=0x6765`, `bt.platform=connac1x`, codename CERVINO/"soc1", fw `WIFI_RAM_CODE_soc1_0_1_1.bin`, patch `250307100601000`
+- WiFi `wlan_drv_gen4m.ko` · BT `bt_drv_connac1x.ko` · GPS `gps_drv.ko` · FM **MT6631** (`fm_chipid=mt6631`) · `connfem.ko` (no discrete FEM DT node)
+- NEED: MediaTek MT6765 connectivity kernel-module source (wmt/connac/gen4m) → build arm64 `.ko`
+
+**WALL 2 — GPU:**
+- **Imagination PowerVR GE8320 (Rogue)**, integrated MT6765; DT `13000000.mfg_doma`; DDK `1.13@5776728`; fw `rgx.fw.22.87.104.18`; needs MTK-custom MM bridge fns **42/44** (vanilla IMG DDK caps at 36)
+- NEED: MTK-patched PowerVR DDK source matching 1.13@5776728
+
+**Source location for BOTH:** MediaTek **MT6765 Android-14 vendor BSP** (`vendor/mediatek/.../kernel_modules/connectivity` + the patched `gpu_rgx` DDK). Match criteria when hunting a public/leaked BSP: connectivity fw tag `soc1_0` + PVR DDK `1.13@5776728`. Obtainable via the 100071481 OEM, or any matching public A14 MT6765 BSP.
