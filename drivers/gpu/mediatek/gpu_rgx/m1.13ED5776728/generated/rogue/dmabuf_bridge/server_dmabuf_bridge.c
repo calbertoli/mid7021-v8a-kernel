@@ -182,13 +182,6 @@ PVRSRVBridgePhysmemImportDmaBuf(IMG_UINT32 ui32DispatchTableEntry,
 			     sizeof(IMG_CHAR)) - 1] = '\0';
 	}
 
-	{
-		const IMG_UINT32 *_mid7021_dbg = (const IMG_UINT32 *)psPhysmemImportDmaBufIN_UI8;
-		PVR_DPF((PVR_DBG_ERROR, "MID7021 MMimport: ifd=%d(0x%x) flags=0x%llx nameSz=%u raw=%08x %08x %08x %08x %08x %08x",
-			psPhysmemImportDmaBufIN->ifd, (unsigned int)psPhysmemImportDmaBufIN->ifd,
-			(unsigned long long)psPhysmemImportDmaBufIN->uiFlags, psPhysmemImportDmaBufIN->ui32NameSize,
-			_mid7021_dbg[0],_mid7021_dbg[1],_mid7021_dbg[2],_mid7021_dbg[3],_mid7021_dbg[4],_mid7021_dbg[5]));
-	}
 	psPhysmemImportDmaBufOUT->eError =
 	    PhysmemImportDmaBuf(psConnection, OSGetDevNode(psConnection),
 				psPhysmemImportDmaBufIN->ifd,
