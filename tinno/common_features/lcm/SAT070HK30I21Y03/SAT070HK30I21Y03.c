@@ -506,7 +506,12 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 #endif /*BUILD_LK*/
 
 #ifdef CONFIG_MTK_ROUND_CORNER_SUPPORT
-	params->round_corner_en = 1;
+	/* MID7021: SAT070 is a flat, SQUARE-corner 7" LCD with no rounded glass.
+	 * The inherited =1 enabled the MTK round-corner OVL overlay, which injects
+	 * full-width top/bottom corner-pattern layers sourced from a VRAM tail that
+	 * nothing fills on this device; under CONFIG_MTK_LCM_PHYSICAL_ROTATION=270
+	 * those top/bottom strips render as the two red left/right edge bars. */
+	params->round_corner_en = 0;
 	params->full_content = 0;
 	params->corner_pattern_width = 32;
 	params->corner_pattern_height = 32;
