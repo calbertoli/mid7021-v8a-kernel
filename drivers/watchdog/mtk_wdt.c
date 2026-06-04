@@ -61,6 +61,8 @@
 #define DRV_VERSION		"1.0"
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
+/* MID7021 arm64 bring-up: neuter LK-armed TOPRGU WDT for boot diagnosis (git-reversible) */
+static bool mtk_wdt_bringup_disarm = true;
 static unsigned int timeout;
 
 static int mtk_wdt_set_timeout(struct watchdog_device *wdt_dev,
@@ -273,6 +275,11 @@ static int mtk_wdt_start(struct watchdog_device *wdt_dev)
 	void __iomem *wdt_base = mtk_wdt->wdt_base;
 	int ret;
 
+	if (mtk_wdt_bringup_disarm) {
+		pr_emerg("[wdtk] bringup: refuse WDT enable\n");
+		return 0;
+	}
+
 	ret = mtk_wdt_set_timeout(wdt_dev, wdt_dev->timeout);
 	if (ret < 0)
 		return ret;
@@ -400,6 +407,35 @@ static struct platform_driver mtk_wdt_driver = {
 		.of_match_table	= mtk_wdt_dt_ids,
 	},
 };
+
+/* MID7021 arm64 bring-up: disarm the LK-armed TOPRGU watchdog before any
+ * device probe so a healthy-but-slow boot is not guillotined on the LK
+ * countdown (expdb signature: wdt_status 0x2, exp_type 0x0). Readback is
+ * pr_emerg + the /metadata heartbeat (should now exceed ~26s if WDT was the
+ * killer). Remove for production.
+ */
+#define MID7021_TOPRGU_PHYS	0x10007000UL
+static int __init mid7021_wdt_disarm(void)
+{
+	void __iomem *base;
+	u32 before, after;
+
+	if (!mtk_wdt_bringup_disarm)
+		return 0;
+
+	base = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
+	if (!base) {
+		pr_emerg("[wdtk] bringup: TOPRGU ioremap failed\n");
+		return 0;
+	}
+	before = readl(base + WDT_MODE);
+	writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY, base + WDT_MODE);
+	after = readl(base + WDT_MODE);
+	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n", before, after);
+	iounmap(base);
+	return 0;
+}
+early_initcall(mid7021_wdt_disarm);
 
 module_platform_driver(mtk_wdt_driver);
 
