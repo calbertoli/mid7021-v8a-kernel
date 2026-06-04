@@ -558,6 +558,11 @@ PVRSRV_ERROR InitDMABUFBridge(void)
 			      PVRSRV_BRIDGE_DMABUF_PHYSMEMIMPORTSPARSEDMABUF,
 			      PVRSRVBridgePhysmemImportSparseDmaBuf, NULL);
 
+	/* MID7021 arm64: 32-bit MTK userspace issues dma-buf import/export as MM bridge fn 42/43/44. Alias to the same server handlers (reuses their struct copy/compat). */
+	SetDispatchTableEntry(PVRSRV_BRIDGE_MM, 42, PVRSRVBridgePhysmemImportDmaBuf, NULL);
+	SetDispatchTableEntry(PVRSRV_BRIDGE_MM, 43, PVRSRVBridgePhysmemExportDmaBuf, NULL);
+	SetDispatchTableEntry(PVRSRV_BRIDGE_MM, 44, PVRSRVBridgePhysmemImportSparseDmaBuf, NULL);
+
 	return PVRSRV_OK;
 }
 
