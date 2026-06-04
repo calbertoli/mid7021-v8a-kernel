@@ -38,8 +38,8 @@
 #define CST_REPORT_LEN		28	/* status buffer size */
 
 /* default logical resolution (panel is 1024x600 landscape) */
-#define CST_DEF_X_MAX		1024
-#define CST_DEF_Y_MAX		600
+#define CST_DEF_X_MAX		600
+#define CST_DEF_Y_MAX		1024
 
 struct cst_ts_data {
 	struct i2c_client	*client;
