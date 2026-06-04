@@ -18,3 +18,5 @@ obj-y += tpd_control.o \
 		tpd_misc.o \
 		tpd_setting.o
 
+obj-$(CONFIG_TOUCHSCREEN_MTK_HYN_CST226SE) += cst226se_core.o
+CFLAGS_cst226se_core.o += -I$(srctree)/drivers/input/touchscreen/mediatek/ -I$(srctree)/drivers/misc/mediatek/include/mt-plat/

@@ -203,3 +203,11 @@ config TOUCHSCREEN_GOODIX_BRL
 source "drivers/input/touchscreen/mediatek/goodix_berlin_driver/Kconfig"
 
 endif
+
+config TOUCHSCREEN_MTK_HYN_CST226SE
+	bool "Hynitron CST226SE for MediaTek package"
+	default n
+	help
+	  Hynitron CST226SE capacitive touch driver (MID7021) using the
+	  MediaTek TPD framework. i2c0 @0x5a, INT GPIO0, RST GPIO174,
+	  1024x600 landscape.

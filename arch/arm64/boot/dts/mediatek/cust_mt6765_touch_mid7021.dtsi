@@ -25,7 +25,7 @@
 	 * and resolve final controller binding during device bring-up.
 	 */
 	compatible = "goodix,touch";
-	tpd-resolution = <720 1600>;
+	tpd-resolution = <1024 600>;
 	interrupt-parent = <&pio>;
 	interrupts = <0 IRQ_TYPE_EDGE_FALLING 0 0>;
 	use-tpd-button = <0>;
@@ -33,7 +33,7 @@
 	tpd-key-local= <139 172 158 0>;
 	tpd-key-dim-local = <90 883 100 40 230
 				 883 100 40 370 883 100 40 0 0 0 0>;
-	tpd-max-touch-num = <10>;
+	tpd-max-touch-num = <5>;
 	tpd-filter-enable = <0>;
 	tpd-filter-pixel-density = <106>;
 	tpd-filter-custom-prameters = <0 0 0 0 0 0 0 0 0 0 0 0>;
@@ -96,3 +96,26 @@
 	};
 };
 /* MID7021 TOUCH scaffold end */
+
+/* MID7021 Hynitron CST226SE on i2c0 @0x5a (from stock dtbo_a.bin fragment@6) */
+&i2c0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	hynitron@5A {
+		compatible = "hyn,226se";
+		reg = <0x5a>;
+		interrupt-parent = <&pio>;
+		interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
+		int-gpio = <&pio 0 0>;
+		rst-gpio = <&pio 174 0>;
+		pos-swap = <1>;
+		posx-reverse = <0>;
+		posy-reverse = <1>;
+		tpd-resolution = <1024 600>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ctp_pins_eint_as_int &ctp_pins_rst_output1>;
+		status = "okay";
+	};
+};
