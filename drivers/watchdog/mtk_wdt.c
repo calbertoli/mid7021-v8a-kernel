@@ -24,6 +24,8 @@
 #include <linux/reset-controller.h>
 #include <linux/types.h>
 #include <linux/watchdog.h>
+#include <linux/timer.h>
+#include <linux/jiffies.h>
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		1
@@ -211,6 +213,13 @@ static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
 	void __iomem *wdt_base;
 
 	wdt_base = mtk_wdt->wdt_base;
+
+	/* MID7021 diagnostic one-off: a SILENT reset via this SW restart path
+	 * (kernel_restart/emergency_restart -> WDT SWRST) leaves no panic in
+	 * expdb. Convert it to a panic so mrdump flushes the caller backtrace. */
+	pr_emerg("[wdtk] mtk_wdt_restart/SWRST invoked (action=%lu) - panic to capture caller\n",
+		 action);
+	panic("mid7021: mtk_wdt_restart SWRST (kernel_restart/emergency_restart path)");
 
 	while (1) {
 		writel(WDT_SWRST_KEY, wdt_base + WDT_SWRST);
@@ -408,31 +417,57 @@ static struct platform_driver mtk_wdt_driver = {
 	},
 };
 
-/* MID7021 arm64 bring-up: disarm the LK-armed TOPRGU watchdog before any
- * device probe so a healthy-but-slow boot is not guillotined on the LK
- * countdown (expdb signature: wdt_status 0x2, exp_type 0x0). Readback is
- * pr_emerg + the /metadata heartbeat (should now exceed ~26s if WDT was the
- * killer). Remove for production.
+/* MID7021 arm64 diagnostic one-off: disarm the LK-armed TOPRGU watchdog AND
+ * keep it disarmed via a periodic re-clear of WDT_MODE_EN (twice a second for
+ * the first 180s of boot), to defeat ANY re-arm path (watchdog-core
+ * boot-enabled handling, BSP wd_api kicker, etc). Tests whether a HW WDT
+ * (expdb wdt_status 0x2 / exp_type 0x0, silent ~8s pre-USB reset) is
+ * guillotining a healthy arm64 boot. Git-reversible.
  */
 #define MID7021_TOPRGU_PHYS	0x10007000UL
+static void __iomem *mid7021_wdt_iobase;
+static struct timer_list mid7021_wdt_redisarm_timer;
+static unsigned long mid7021_wdt_redisarm_until;
+
+static void mid7021_wdt_redisarm_fn(struct timer_list *unused)
+{
+	u32 before;
+
+	if (mid7021_wdt_iobase) {
+		before = readl(mid7021_wdt_iobase + WDT_MODE);
+		if (before & WDT_MODE_EN) {
+			writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY,
+			       mid7021_wdt_iobase + WDT_MODE);
+			pr_emerg("[wdtk] re-disarm: EN was set (%08x), cleared\n",
+				 before);
+		}
+	}
+	if (time_before(jiffies, mid7021_wdt_redisarm_until))
+		mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
+}
+
 static int __init mid7021_wdt_disarm(void)
 {
-	void __iomem *base;
 	u32 before, after;
 
 	if (!mtk_wdt_bringup_disarm)
 		return 0;
 
-	base = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
-	if (!base) {
+	mid7021_wdt_iobase = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
+	if (!mid7021_wdt_iobase) {
 		pr_emerg("[wdtk] bringup: TOPRGU ioremap failed\n");
 		return 0;
 	}
-	before = readl(base + WDT_MODE);
-	writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY, base + WDT_MODE);
-	after = readl(base + WDT_MODE);
+	before = readl(mid7021_wdt_iobase + WDT_MODE);
+	writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY,
+	       mid7021_wdt_iobase + WDT_MODE);
+	after = readl(mid7021_wdt_iobase + WDT_MODE);
 	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n", before, after);
-	iounmap(base);
+
+	/* keep it disarmed; mapping intentionally retained for the timer */
+	mid7021_wdt_redisarm_until = jiffies + 180 * HZ;
+	timer_setup(&mid7021_wdt_redisarm_timer, mid7021_wdt_redisarm_fn, 0);
+	mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
 	return 0;
 }
 early_initcall(mid7021_wdt_disarm);
