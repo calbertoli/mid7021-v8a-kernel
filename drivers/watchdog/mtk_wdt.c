@@ -442,12 +442,17 @@ static void mid7021_wdt_redisarm_fn(struct timer_list *unused)
 			pr_emerg("[wdtk] re-disarm: EN was set (%08x), cleared\n",
 				 before);
 		}
+		/* FEED the dog every tick: a normal kick reloads the counter.
+		 * GZ may trap the EN-clear above but not a kick, so this keeps the
+		 * TOPRGU fed -> it never fires -> no WDTRSTB -> no PMIC reset,
+		 * buying the boot the seconds it needs to reach userspace. */
+		writel(WDT_RST_RELOAD, mid7021_wdt_iobase + WDT_RST);
 	}
 	/* MID7021 diag: both dogs neutered -> boot can't reset; force a panic at
 	 * ~20s so mrdump flushes the FULL kernel console to expdb (the only
 	 * channel that captures here). Tells us exactly where the boot stalls. */
 	if (mid7021_wdt_panic_at && time_after(jiffies, mid7021_wdt_panic_at)) {
-		pr_emerg("[wdtk] breadcrumb: forcing panic @~20s to flush kernel log to expdb\n");
+		pr_emerg("[wdtk] breadcrumb: safety panic @~40s (boot did not reach userspace) - flushing log to expdb\n");
 		panic("mid7021 breadcrumb dump (WDT diag) - read kernel log from expdb");
 	}
 	if (time_before(jiffies, mid7021_wdt_redisarm_until))
@@ -474,7 +479,7 @@ static int __init mid7021_wdt_disarm(void)
 
 	/* keep it disarmed; mapping intentionally retained for the timer */
 	mid7021_wdt_redisarm_until = jiffies + 180 * HZ;
-	mid7021_wdt_panic_at = jiffies + 6 * HZ;
+	mid7021_wdt_panic_at = jiffies + 40 * HZ;
 	timer_setup(&mid7021_wdt_redisarm_timer, mid7021_wdt_redisarm_fn, 0);
 	mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
 	return 0;
