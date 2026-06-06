@@ -428,6 +428,7 @@ static struct platform_driver mtk_wdt_driver = {
 static void __iomem *mid7021_wdt_iobase;
 static struct timer_list mid7021_wdt_redisarm_timer;
 static unsigned long mid7021_wdt_redisarm_until;
+static unsigned long mid7021_wdt_panic_at;
 
 static void mid7021_wdt_redisarm_fn(struct timer_list *unused)
 {
@@ -441,6 +442,13 @@ static void mid7021_wdt_redisarm_fn(struct timer_list *unused)
 			pr_emerg("[wdtk] re-disarm: EN was set (%08x), cleared\n",
 				 before);
 		}
+	}
+	/* MID7021 diag: both dogs neutered -> boot can't reset; force a panic at
+	 * ~20s so mrdump flushes the FULL kernel console to expdb (the only
+	 * channel that captures here). Tells us exactly where the boot stalls. */
+	if (mid7021_wdt_panic_at && time_after(jiffies, mid7021_wdt_panic_at)) {
+		pr_emerg("[wdtk] breadcrumb: forcing panic @~20s to flush kernel log to expdb\n");
+		panic("mid7021 breadcrumb dump (WDT diag) - read kernel log from expdb");
 	}
 	if (time_before(jiffies, mid7021_wdt_redisarm_until))
 		mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
@@ -466,6 +474,7 @@ static int __init mid7021_wdt_disarm(void)
 
 	/* keep it disarmed; mapping intentionally retained for the timer */
 	mid7021_wdt_redisarm_until = jiffies + 180 * HZ;
+	mid7021_wdt_panic_at = jiffies + 20 * HZ;
 	timer_setup(&mid7021_wdt_redisarm_timer, mid7021_wdt_redisarm_fn, 0);
 	mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
 	return 0;

@@ -36,7 +36,10 @@ int PMIC_check_wdt_status(void)
 	udelay(50);
 	is_wdt_reboot_pmic_chk = pmic_get_register_value(PMIC_WDTRSTB_STATUS);
 	ret = pmic_set_register_value(PMIC_TOP_RST_MISC_CLR, 0x8);
-	ret = pmic_set_register_value(PMIC_TOP_RST_MISC_SET, 0x1);
+	/* MID7021 bring-up diag: do NOT enable the PMIC WDTRSTB reset path (CLR,
+	 * not SET) so a TOPRGU/WDTRSTB assertion cannot power-reset via the PMIC. */
+	ret = pmic_set_register_value(PMIC_TOP_RST_MISC_CLR, 0x1);
+	pr_emerg("[wdtk] PMIC WDTRSTB_EN disabled (bring-up diag)\n");
 	ret = pmic_get_register_value(PMIC_RG_WDTRSTB_EN);
 	return ret;
 }
