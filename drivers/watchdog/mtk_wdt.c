@@ -64,7 +64,7 @@
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 /* MID7021 arm64 bring-up: neuter LK-armed TOPRGU WDT for boot diagnosis (git-reversible) */
-static bool mtk_wdt_bringup_disarm = true;
+static bool mtk_wdt_bringup_disarm = false;  /* feed-like-stock: let kernel adopt+auto-kick */
 static unsigned int timeout;
 
 static int mtk_wdt_set_timeout(struct watchdog_device *wdt_dev,
@@ -432,22 +432,9 @@ static unsigned long mid7021_wdt_panic_at;
 
 static void mid7021_wdt_redisarm_fn(struct timer_list *unused)
 {
-	u32 before;
-
-	if (mid7021_wdt_iobase) {
-		before = readl(mid7021_wdt_iobase + WDT_MODE);
-		if (before & WDT_MODE_EN) {
-			writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY,
-			       mid7021_wdt_iobase + WDT_MODE);
-			pr_emerg("[wdtk] re-disarm: EN was set (%08x), cleared\n",
-				 before);
-		}
-		/* FEED the dog every tick: a normal kick reloads the counter.
-		 * GZ may trap the EN-clear above but not a kick, so this keeps the
-		 * TOPRGU fed -> it never fires -> no WDTRSTB -> no PMIC reset,
-		 * buying the boot the seconds it needs to reach userspace. */
-		writel(WDT_RST_RELOAD, mid7021_wdt_iobase + WDT_RST);
-	}
+	/* feed-like-stock experiment: do NOT touch the WDT here; let the kernel
+	 * watchdog-core (WDOG_HW_RUNNING + watchdog_worker) auto-kick it. This
+	 * timer is now ONLY a capture-panic so we can see where a hang lands. */
 	/* MID7021 diag: both dogs neutered -> boot can't reset; force a panic at
 	 * ~20s so mrdump flushes the FULL kernel console to expdb (the only
 	 * channel that captures here). Tells us exactly where the boot stalls. */
@@ -461,25 +448,11 @@ static void mid7021_wdt_redisarm_fn(struct timer_list *unused)
 
 static int __init mid7021_wdt_disarm(void)
 {
-	u32 before, after;
-
-	if (!mtk_wdt_bringup_disarm)
-		return 0;
-
-	mid7021_wdt_iobase = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
-	if (!mid7021_wdt_iobase) {
-		pr_emerg("[wdtk] bringup: TOPRGU ioremap failed\n");
-		return 0;
-	}
-	before = readl(mid7021_wdt_iobase + WDT_MODE);
-	writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY,
-	       mid7021_wdt_iobase + WDT_MODE);
-	after = readl(mid7021_wdt_iobase + WDT_MODE);
-	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n", before, after);
-
-	/* keep it disarmed; mapping intentionally retained for the timer */
+	/* feed-like-stock: do NOT disarm the LK-armed dog; let the kernel adopt
+	 * and auto-kick it. Only arm the capture-panic timer below. */
+	pr_emerg("[wdtk] feed-like-stock: leaving WDT to kernel watchdog-core\n");
 	mid7021_wdt_redisarm_until = jiffies + 180 * HZ;
-	mid7021_wdt_panic_at = jiffies + (15 * HZ) / 2;
+	mid7021_wdt_panic_at = jiffies + 20 * HZ;
 	timer_setup(&mid7021_wdt_redisarm_timer, mid7021_wdt_redisarm_fn, 0);
 	mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
 	return 0;
