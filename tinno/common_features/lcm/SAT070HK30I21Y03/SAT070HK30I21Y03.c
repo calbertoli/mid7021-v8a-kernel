@@ -506,7 +506,7 @@ static void lcm_get_params(struct LCM_PARAMS *params)
 #endif /*BUILD_LK*/
 
 #ifdef CONFIG_MTK_ROUND_CORNER_SUPPORT
-	params->round_corner_en = 1;
+	params->round_corner_en = 0;
 	params->full_content = 0;
 	params->corner_pattern_width = 32;
 	params->corner_pattern_height = 32;
