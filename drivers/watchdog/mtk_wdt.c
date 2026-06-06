@@ -479,7 +479,7 @@ static int __init mid7021_wdt_disarm(void)
 
 	/* keep it disarmed; mapping intentionally retained for the timer */
 	mid7021_wdt_redisarm_until = jiffies + 180 * HZ;
-	mid7021_wdt_panic_at = jiffies + 40 * HZ;
+	mid7021_wdt_panic_at = jiffies + 7 * HZ;
 	timer_setup(&mid7021_wdt_redisarm_timer, mid7021_wdt_redisarm_fn, 0);
 	mod_timer(&mid7021_wdt_redisarm_timer, jiffies + HZ / 2);
 	return 0;
