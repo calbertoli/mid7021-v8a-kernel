@@ -525,6 +525,33 @@ static const struct chip_data mt6397_core = {
 	.cid_shift = 0,
 };
 
+#include <linux/workqueue.h>
+#include <linux/jiffies.h>
+static struct regmap *mid7021_pmic_rm;
+static int mid7021_pmic_ticks;
+static void mid7021_pmic_reclear(struct work_struct *w);
+static DECLARE_DELAYED_WORK(mid7021_pmic_dw, mid7021_pmic_reclear);
+/* MID7021: ENFORCE RG_WDTRSTB_EN (TOP_RST_MISC bit0) = 0 across the ~8.18s mark.
+ * Workqueue (process) context, so the regmap-over-pwrap write may sleep. We do not
+ * race to observe a re-arm; we hold the bit down so re-arm loses. Timestamped so a
+ * re-arm leaves a timing fingerprint, readable later over adb. 250ms << wdt timeout. */
+static void mid7021_pmic_reclear(struct work_struct *w)
+{
+	unsigned int v = 0;
+	unsigned long ms = jiffies_to_msecs(jiffies);
+	if (!mid7021_pmic_rm)
+		return;
+	regmap_read(mid7021_pmic_rm, MT6357_TOP_RST_MISC, &v);
+	if (v & 0x1) {
+		regmap_write(mid7021_pmic_rm, MT6357_TOP_RST_MISC_CLR, 0x1);
+		pr_emerg("[wdtk-pmic] t=%lums tick%d: RE-ARMED %04x -> re-cleared\n", ms, mid7021_pmic_ticks, v);
+	} else if ((mid7021_pmic_ticks % 8) == 0) {
+		pr_emerg("[wdtk-pmic] t=%lums tick%d: %04x bit0 held clear\n", ms, mid7021_pmic_ticks, v);
+	}
+	if (++mid7021_pmic_ticks < 60)
+		schedule_delayed_work(&mid7021_pmic_dw, msecs_to_jiffies(250));
+}
+
 static int mt6397_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -559,6 +586,18 @@ static int mt6397_probe(struct platform_device *pdev)
 	pmic->chip_id = (id >> pmic_core->cid_shift) & 0xff;
 
 	platform_set_drvdata(pdev, pmic);
+	if (pmic->chip_id == MT6357_CHIP_ID) {
+		unsigned int rm = 0, st = 0, rm2 = 0;
+		/* MID7021 WDT hunt: read PMIC reset/WDTRSTB regs, clear RG_WDTRSTB_EN (bit0), read back */
+		regmap_read(pmic->regmap, MT6357_TOP_RST_MISC, &rm);
+		regmap_read(pmic->regmap, MT6357_TOP_RST_STATUS, &st);
+		regmap_write(pmic->regmap, MT6357_TOP_RST_MISC_CLR, 0x1);
+		regmap_read(pmic->regmap, MT6357_TOP_RST_MISC, &rm2);
+		pr_emerg("[wdtk-pmic] TOP_RST_MISC=%04x TOP_RST_STATUS=%04x after_clr=%04x (RG_WDTRSTB_EN bit0)\n",
+			 rm, st, rm2);
+		mid7021_pmic_rm = pmic->regmap;
+		schedule_delayed_work(&mid7021_pmic_dw, 0); /* first tick immediate: no opening gap */
+	}
 
 	pmic->irq = platform_get_irq(pdev, 0);
 	if (pmic->irq <= 0) {

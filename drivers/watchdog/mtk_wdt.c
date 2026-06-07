@@ -16,6 +16,9 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/timer.h>
+#include <linux/jiffies.h>
+#include <linux/sched/clock.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/of.h>
@@ -36,6 +39,7 @@
 #define WDT_RST_RELOAD		0x1971
 
 #define WDT_MODE		0x00
+#define WDT_STATUS		0x0c
 #define WDT_MODE_EN		(1 << 0)
 #define WDT_MODE_EXT_POL_LOW	(0 << 1)
 #define WDT_MODE_EXT_POL_HIGH	(1 << 1)
@@ -415,24 +419,69 @@ static struct platform_driver mtk_wdt_driver = {
  * killer). Remove for production.
  */
 #define MID7021_TOPRGU_PHYS	0x10007000UL
+static void __iomem *mid7021_wdt_rb_base;
+static u32 mid7021_wdt_rb_before, mid7021_wdt_rb_after;
+static void __iomem *mid7021_wdt_spm_base;
+
+static void mid7021_wdt_readback_panic(struct timer_list *unused);
+static DEFINE_TIMER(mid7021_wdt_rb_timer, mid7021_wdt_readback_panic);
+#define MID7021_RING 44
+static u32 mid7021_ring_mode[MID7021_RING];
+static u32 mid7021_ring_ms[MID7021_RING];
+static int mid7021_ring_n;
+
+static void mid7021_dump_ring_and_die(const char *why)
+{
+	int i;
+	u32 status = mid7021_wdt_rb_base ? readl(mid7021_wdt_rb_base + WDT_STATUS) : 0;
+	pr_emerg("[wdtk-blindspot] %s | WDT_STATUS=%08x | %d samples (ms: WDT_MODE; EN=bit0 EXRST=bit2)\n",
+		 why, status, mid7021_ring_n);
+	for (i = 0; i < mid7021_ring_n && i < MID7021_RING; i++)
+		pr_emerg("[wdtk-blindspot]   %5u: %08x\n", mid7021_ring_ms[i], mid7021_ring_mode[i]);
+	panic("[wdtk-blindspot] %s", why);
+}
+
+static void mid7021_wdt_readback_panic(struct timer_list *unused)
+{
+	u32 mode = 0;
+	u32 ms = local_clock() / 1000000; /* real ms since boot (jiffies starts ~2^32) */
+
+	if (mid7021_wdt_rb_base)
+		mode = readl(mid7021_wdt_rb_base + WDT_MODE);
+	if (mid7021_ring_n < MID7021_RING) {
+		mid7021_ring_ms[mid7021_ring_n] = ms;
+		mid7021_ring_mode[mid7021_ring_n] = mode;
+		mid7021_ring_n++;
+	}
+	/* EN came back after our early disarm -> TOPRGU re-armed; flush NOW (best margin) */
+	if (mode & WDT_MODE_EN)
+		mid7021_dump_ring_and_die("TOPRGU EN RE-ARMED in blind spot");
+	/* deadline ~7.9s (before the ~8.18s reset): flush the held-clear timeline */
+	if (ms >= 7900)
+		mid7021_dump_ring_and_die("7.9s deadline: no EN re-arm seen");
+	mod_timer(&mid7021_wdt_rb_timer, jiffies + HZ / 5); /* 200ms */
+}
+
+
 static int __init mid7021_wdt_disarm(void)
 {
-	void __iomem *base;
-	u32 before, after;
-
 	if (!mtk_wdt_bringup_disarm)
 		return 0;
 
-	base = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
-	if (!base) {
+	mid7021_wdt_rb_base = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
+	if (!mid7021_wdt_rb_base) {
 		pr_emerg("[wdtk] bringup: TOPRGU ioremap failed\n");
 		return 0;
 	}
-	before = readl(base + WDT_MODE);
-	writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY, base + WDT_MODE);
-	after = readl(base + WDT_MODE);
-	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n", before, after);
-	iounmap(base);
+	mid7021_wdt_spm_base = ioremap(0x10006000UL, 0x1000);
+	mid7021_wdt_rb_before = readl(mid7021_wdt_rb_base + WDT_MODE);
+	writel((mid7021_wdt_rb_before & ~WDT_MODE_EN) | WDT_MODE_KEY,
+	       mid7021_wdt_rb_base + WDT_MODE);
+	mid7021_wdt_rb_after = readl(mid7021_wdt_rb_base + WDT_MODE);
+	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n",
+		 mid7021_wdt_rb_before, mid7021_wdt_rb_after);
+	/* keep base mapped; re-read + panic-flush at ~6s (before the ~8s dog) */
+	mod_timer(&mid7021_wdt_rb_timer, jiffies + HZ / 5);
 	return 0;
 }
 early_initcall(mid7021_wdt_disarm);
