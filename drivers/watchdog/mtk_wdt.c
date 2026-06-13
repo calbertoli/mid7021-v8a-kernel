@@ -26,6 +26,8 @@
 #include <linux/watchdog.h>
 #include <linux/reboot.h>
 #include <linux/sched.h>
+#include <linux/timer.h>
+#include <linux/sched/debug.h>
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		1
@@ -229,6 +231,17 @@ static struct notifier_block mid7021_reboot_nb = {
 	.priority = 255,
 };
 
+/* MID7021 deadline-panic: a HANG (S-state/binder wait, e.g. vold->keymaster) writes
+ * nothing to expdb (nothing panics). This timer fires from softirq (independent of the
+ * stuck task), dumps ALL task stacks, then panics so mrdump flushes the ring to expdb. */
+static struct timer_list mid7021_deadline_timer;
+static void mid7021_deadline_fire(struct timer_list *unused)
+{
+	pr_emerg("[wdtk-deadline] 70s: boot stalled; dumping ALL tasks then panicking\n");
+	show_state();
+	panic("[wdtk-deadline] 70s hang capture (all-task dump above)");
+}
+
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
 			   unsigned long action, void *data)
 {
@@ -354,7 +367,9 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mtk_wdt);
 	register_reboot_notifier(&mid7021_reboot_nb);
-	pr_emerg("[wdtk-canary] mid7021 reboot-capture+SELdevelop ACTIVE (mtk_wdt probe)\n");
+	pr_emerg("[wdtk-canary] mid7021 reboot-capture+SELdev+deadline ACTIVE (mtk_wdt probe)\n");
+	timer_setup(&mid7021_deadline_timer, mid7021_deadline_fire, 0);
+	mod_timer(&mid7021_deadline_timer, jiffies + 70 * HZ);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mtk_wdt->wdt_base = devm_ioremap_resource(&pdev->dev, res);
