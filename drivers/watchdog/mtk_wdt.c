@@ -354,7 +354,7 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mtk_wdt);
 	register_reboot_notifier(&mid7021_reboot_nb);
-	pr_emerg("[wdtk-canary] mid7021 reboot-capture build ACTIVE (mtk_wdt probe)\n");
+	pr_emerg("[wdtk-canary] mid7021 reboot-capture+SELdevelop ACTIVE (mtk_wdt probe)\n");
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mtk_wdt->wdt_base = devm_ioremap_resource(&pdev->dev, res);
