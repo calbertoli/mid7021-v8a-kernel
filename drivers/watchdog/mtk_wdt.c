@@ -16,9 +16,6 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
-#include <linux/timer.h>
-#include <linux/jiffies.h>
-#include <linux/sched/clock.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/of.h>
@@ -27,6 +24,8 @@
 #include <linux/reset-controller.h>
 #include <linux/types.h>
 #include <linux/watchdog.h>
+#include <linux/reboot.h>
+#include <linux/sched.h>
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		1
@@ -39,7 +38,6 @@
 #define WDT_RST_RELOAD		0x1971
 
 #define WDT_MODE		0x00
-#define WDT_STATUS		0x0c
 #define WDT_MODE_EN		(1 << 0)
 #define WDT_MODE_EXT_POL_LOW	(0 << 1)
 #define WDT_MODE_EXT_POL_HIGH	(1 << 1)
@@ -208,6 +206,29 @@ static void mtk_wdt_init(struct device_node *np,
 	}
 }
 
+/* MID7021 reboot-capture diagnostic (2026-06): the ~8.18s reset is hypothesized
+ * to be a DELIBERATE software reboot (2nd-stage init suicide ~1.1s after sepolicy
+ * load), not a HW watchdog timeout. This tree's ONLY restart path is
+ * mtk_wdt_restart()->WDT_SWRST, so a clean reboot wears a watchdog costume
+ * (wdt_status 0x2 = SW/bypass-pwk per MT6765 LK). Capture WHO requested it +
+ * the reason string in the culprit's context, then panic so mrdump flushes the
+ * ring (incl. init's last words) to expdb. */
+static int mid7021_reboot_notify(struct notifier_block *nb,
+				 unsigned long action, void *data)
+{
+	pr_emerg("[wdtk-reboot] *** REBOOT REQUESTED *** action=%lu reason=\"%s\" by comm=%s pid=%d\n",
+		 action, data ? (char *)data : "(null)", current->comm, task_pid_nr(current));
+	dump_stack();
+	panic("[wdtk-reboot] deliberate reboot: reason=%s by %s",
+	      data ? (char *)data : "(null)", current->comm);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block mid7021_reboot_nb = {
+	.notifier_call = mid7021_reboot_notify,
+	.priority = 255,
+};
+
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
 			   unsigned long action, void *data)
 {
@@ -215,6 +236,12 @@ static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
 	void __iomem *wdt_base;
 
 	wdt_base = mtk_wdt->wdt_base;
+
+	pr_emerg("[wdtk-restart] *** mtk_wdt_restart() ENTERED *** action=%lu reason=\"%s\" by comm=%s pid=%d\n",
+		 action, data ? (char *)data : "(null)", current->comm, task_pid_nr(current));
+	dump_stack();
+	panic("[wdtk-restart] reboot reached SWRST handler: reason=%s by %s",
+	      data ? (char *)data : "(null)", current->comm);
 
 	while (1) {
 		writel(WDT_SWRST_KEY, wdt_base + WDT_SWRST);
@@ -326,6 +353,8 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	platform_set_drvdata(pdev, mtk_wdt);
+	register_reboot_notifier(&mid7021_reboot_nb);
+	pr_emerg("[wdtk-canary] mid7021 reboot-capture build ACTIVE (mtk_wdt probe)\n");
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mtk_wdt->wdt_base = devm_ioremap_resource(&pdev->dev, res);
@@ -419,69 +448,24 @@ static struct platform_driver mtk_wdt_driver = {
  * killer). Remove for production.
  */
 #define MID7021_TOPRGU_PHYS	0x10007000UL
-static void __iomem *mid7021_wdt_rb_base;
-static u32 mid7021_wdt_rb_before, mid7021_wdt_rb_after;
-static void __iomem *mid7021_wdt_spm_base;
-
-static void mid7021_wdt_readback_panic(struct timer_list *unused);
-static DEFINE_TIMER(mid7021_wdt_rb_timer, mid7021_wdt_readback_panic);
-#define MID7021_RING 44
-static u32 mid7021_ring_mode[MID7021_RING];
-static u32 mid7021_ring_ms[MID7021_RING];
-static int mid7021_ring_n;
-
-static void mid7021_dump_ring_and_die(const char *why)
-{
-	int i;
-	u32 status = mid7021_wdt_rb_base ? readl(mid7021_wdt_rb_base + WDT_STATUS) : 0;
-	pr_emerg("[wdtk-blindspot] %s | WDT_STATUS=%08x | %d samples (ms: WDT_MODE; EN=bit0 EXRST=bit2)\n",
-		 why, status, mid7021_ring_n);
-	for (i = 0; i < mid7021_ring_n && i < MID7021_RING; i++)
-		pr_emerg("[wdtk-blindspot]   %5u: %08x\n", mid7021_ring_ms[i], mid7021_ring_mode[i]);
-	panic("[wdtk-blindspot] %s", why);
-}
-
-static void mid7021_wdt_readback_panic(struct timer_list *unused)
-{
-	u32 mode = 0;
-	u32 ms = local_clock() / 1000000; /* real ms since boot (jiffies starts ~2^32) */
-
-	if (mid7021_wdt_rb_base)
-		mode = readl(mid7021_wdt_rb_base + WDT_MODE);
-	if (mid7021_ring_n < MID7021_RING) {
-		mid7021_ring_ms[mid7021_ring_n] = ms;
-		mid7021_ring_mode[mid7021_ring_n] = mode;
-		mid7021_ring_n++;
-	}
-	/* EN came back after our early disarm -> TOPRGU re-armed; flush NOW (best margin) */
-	if (mode & WDT_MODE_EN)
-		mid7021_dump_ring_and_die("TOPRGU EN RE-ARMED in blind spot");
-	/* deadline ~7.9s (before the ~8.18s reset): flush the held-clear timeline */
-	if (ms >= 7900)
-		mid7021_dump_ring_and_die("7.9s deadline: no EN re-arm seen");
-	mod_timer(&mid7021_wdt_rb_timer, jiffies + HZ / 5); /* 200ms */
-}
-
-
 static int __init mid7021_wdt_disarm(void)
 {
+	void __iomem *base;
+	u32 before, after;
+
 	if (!mtk_wdt_bringup_disarm)
 		return 0;
 
-	mid7021_wdt_rb_base = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
-	if (!mid7021_wdt_rb_base) {
+	base = ioremap(MID7021_TOPRGU_PHYS, 0x1000);
+	if (!base) {
 		pr_emerg("[wdtk] bringup: TOPRGU ioremap failed\n");
 		return 0;
 	}
-	mid7021_wdt_spm_base = ioremap(0x10006000UL, 0x1000);
-	mid7021_wdt_rb_before = readl(mid7021_wdt_rb_base + WDT_MODE);
-	writel((mid7021_wdt_rb_before & ~WDT_MODE_EN) | WDT_MODE_KEY,
-	       mid7021_wdt_rb_base + WDT_MODE);
-	mid7021_wdt_rb_after = readl(mid7021_wdt_rb_base + WDT_MODE);
-	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n",
-		 mid7021_wdt_rb_before, mid7021_wdt_rb_after);
-	/* keep base mapped; re-read + panic-flush at ~6s (before the ~8s dog) */
-	mod_timer(&mid7021_wdt_rb_timer, jiffies + HZ / 5);
+	before = readl(base + WDT_MODE);
+	writel((before & ~WDT_MODE_EN) | WDT_MODE_KEY, base + WDT_MODE);
+	after = readl(base + WDT_MODE);
+	pr_emerg("[wdtk] bringup disarm: WDT_MODE %08x -> %08x\n", before, after);
+	iounmap(base);
 	return 0;
 }
 early_initcall(mid7021_wdt_disarm);
