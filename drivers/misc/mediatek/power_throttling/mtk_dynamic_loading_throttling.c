@@ -196,7 +196,7 @@ static int dlpt_check_power_off(void)
 	int ret = 0;
 	static int dlpt_power_off_cnt;
 
-	if (dlpt.lbat_level == LOW_BATTERY_LEVEL_2) {
+	if (0 && dlpt.lbat_level == LOW_BATTERY_LEVEL_2) { /* MID7021 v8a dlpt-NEUTER: hl7005 charger driver feeds garbage to DLPT -> false LBAT poweroff @~114s before zygote. RUN ONLY ON EXTERNAL POWER + decent SOC. */
 		if (dlpt_power_off_cnt == 0)
 			ret = 0; /* 1st time get VBAT < 3.1V, record it */
 		else
