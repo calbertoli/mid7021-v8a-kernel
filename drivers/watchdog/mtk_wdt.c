@@ -237,9 +237,9 @@ static struct notifier_block mid7021_reboot_nb = {
 static struct timer_list mid7021_deadline_timer;
 static void mid7021_deadline_fire(struct timer_list *unused)
 {
-	pr_emerg("[wdtk-deadline] 70s: boot stalled; dumping ALL tasks then panicking\n");
+	pr_emerg("[wdtk-deadline] 300s: boot stalled; dumping ALL tasks then panicking\n");
 	show_state();
-	panic("[wdtk-deadline] 70s hang capture (all-task dump above)");
+	panic("[wdtk-deadline] 300s hang capture (all-task dump above)");
 }
 
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
@@ -369,7 +369,7 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 	register_reboot_notifier(&mid7021_reboot_nb);
 	pr_emerg("[wdtk-canary] mid7021 reboot-capture+SELdev+deadline ACTIVE (mtk_wdt probe)\n");
 	timer_setup(&mid7021_deadline_timer, mid7021_deadline_fire, 0);
-	mod_timer(&mid7021_deadline_timer, jiffies + 70 * HZ);
+	mod_timer(&mid7021_deadline_timer, jiffies + 300 * HZ);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mtk_wdt->wdt_base = devm_ioremap_resource(&pdev->dev, res);
