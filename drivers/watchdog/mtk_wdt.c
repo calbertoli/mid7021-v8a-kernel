@@ -28,6 +28,8 @@
 #include <linux/sched.h>
 #include <linux/timer.h>
 #include <linux/sched/debug.h>
+#include <mt-plat/aee.h>
+#include <asm/system_misc.h>
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		1
@@ -218,17 +220,25 @@ static void mtk_wdt_init(struct device_node *np,
 static int mid7021_reboot_notify(struct notifier_block *nb,
 				 unsigned long action, void *data)
 {
-	pr_emerg("[wdtk-reboot] *** REBOOT REQUESTED *** action=%lu reason=\"%s\" by comm=%s pid=%d\n",
-		 action, data ? (char *)data : "(null)", current->comm, task_pid_nr(current));
-	dump_stack();
-	panic("[wdtk-reboot] deliberate reboot: reason=%s by %s",
-	      data ? (char *)data : "(null)", current->comm);
+	aee_sram_printk("[wdtk-reboot] REBOOT action=%lu reason=\"%s\" comm=%s pid=%d\n",
+		action, data ? (char *)data : "(null)",
+		current->comm, task_pid_nr(current));
 	return NOTIFY_DONE;
 }
 
 static struct notifier_block mid7021_reboot_nb = {
 	.notifier_call = mid7021_reboot_notify,
 	.priority = 255,
+};
+
+static int mid7021_panic_notify(struct notifier_block *nb, unsigned long ev, void *buf)
+{
+	aee_sram_printk("[wdtk-panic] PANIC comm=%s pid=%d msg=\"%s\"\n",
+		current->comm, task_pid_nr(current), buf ? (char *)buf : "");
+	return NOTIFY_DONE;
+}
+static struct notifier_block mid7021_panic_nb = {
+	.notifier_call = mid7021_panic_notify, .priority = INT_MAX,
 };
 
 /* MID7021 deadline-panic: a HANG (S-state/binder wait, e.g. vold->keymaster) writes
@@ -250,11 +260,8 @@ static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
 
 	wdt_base = mtk_wdt->wdt_base;
 
-	pr_emerg("[wdtk-restart] *** mtk_wdt_restart() ENTERED *** action=%lu reason=\"%s\" by comm=%s pid=%d\n",
-		 action, data ? (char *)data : "(null)", current->comm, task_pid_nr(current));
-	dump_stack();
-	panic("[wdtk-restart] reboot reached SWRST handler: reason=%s by %s",
-	      data ? (char *)data : "(null)", current->comm);
+	aee_sram_printk("[wdtk-restart] mtk_wdt_restart comm=%s pid=%d\n",
+		current->comm, task_pid_nr(current));
 
 	while (1) {
 		writel(WDT_SWRST_KEY, wdt_base + WDT_SWRST);
@@ -367,7 +374,9 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mtk_wdt);
 	register_reboot_notifier(&mid7021_reboot_nb);
+	atomic_notifier_chain_register(&panic_notifier_list, &mid7021_panic_nb);
 	pr_emerg("[wdtk-canary] mid7021 reboot-capture+SELdev+deadline ACTIVE (mtk_wdt probe)\n");
+	aee_sram_printk("[wdtk] arm_pm_restart=%ps\n", arm_pm_restart);
 	timer_setup(&mid7021_deadline_timer, mid7021_deadline_fire, 0);
 	mod_timer(&mid7021_deadline_timer, jiffies + 900 * HZ);
 
