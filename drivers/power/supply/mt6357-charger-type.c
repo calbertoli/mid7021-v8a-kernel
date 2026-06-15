@@ -520,20 +520,21 @@ static int get_vbus_voltage(struct mtk_charger_type *info,
 	int *val)
 {
 	int ret = 0;
-/*
+
 	if (!IS_ERR(info->chan_vbus)) {
 		ret = iio_read_channel_processed(info->chan_vbus, val);
 		if (ret < 0)
 			pr_notice("[%s]read fail,ret=%d\n", __func__, ret);
 	} else {
-		pr_notice("[%s]chan error %d\n", __func__, info->chan_vbus);
+		pr_notice("[%s]chan error %ld\n", __func__,
+			PTR_ERR(info->chan_vbus));
 		ret = -ENOTSUPP;
 	}
 
 	*val = (((R_CHARGER_1 +
 			R_CHARGER_2) * 100 * *val) /
 			R_CHARGER_2) / 100;
-*/
+
 	return ret;
 }
 
@@ -626,10 +627,12 @@ static int psy_chr_type_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
-		if (info->type == POWER_SUPPLY_USB_TYPE_UNKNOWN)
-			val->intval = 0;
-		else
-			val->intval = 1;
+		/* MID7021: BC1.2 type detection is not driven on this board
+		 * (no external charger IC). Read the PMIC charger-detect bit
+		 * directly as the source of truth for "power is present". */
+		val->intval = !!bc11_get_register_value(info->regmap,
+				PMIC_RGS_CHRDET_ADDR, PMIC_RGS_CHRDET_MASK,
+				PMIC_RGS_CHRDET_SHIFT);
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
 		 val->intval = POWER_SUPPLY_TYPE_MAIN;
@@ -714,11 +717,11 @@ static int mt_usb_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
-		if ((info->type == POWER_SUPPLY_USB_TYPE_SDP) ||
-			(info->type == POWER_SUPPLY_USB_TYPE_CDP))
-			val->intval = 1;
-		else
-			val->intval = 0;
+		/* MID7021: report USB charger presence from the PMIC
+		 * charger-detect bit (BC1.2 type detection not driven here). */
+		val->intval = !!bc11_get_register_value(info->regmap,
+				PMIC_RGS_CHRDET_ADDR, PMIC_RGS_CHRDET_MASK,
+				PMIC_RGS_CHRDET_SHIFT);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 		val->intval = 500000;
@@ -752,7 +755,7 @@ static enum power_supply_usb_type mt6357_charger_usb_types[] = {
 };
 
 static char *mt6357_charger_supplied_to[] = {
-	"mtk_charger_type",
+	"battery",
 };
 
 static int check_boot_mode(struct mtk_charger_type *info, struct device *dev)
@@ -812,7 +815,10 @@ static int mt6357_charger_type_probe(struct platform_device *pdev)
 
 	check_boot_mode(info, &pdev->dev);
 
-	info->psy_desc.name = "mtk_charger_aca";
+	/* MID7021: this board has no external charger IC to present the
+	 * user-facing charger_type PSY (stock did it from the HL7005 driver via
+	 * USE_MT6357_FUNC). Register it directly off the PMIC here. */
+	info->psy_desc.name = "mtk_charger_type";
 	info->psy_desc.type = POWER_SUPPLY_TYPE_MAIN;
 	info->psy_desc.properties = chr_type_properties;
 	info->psy_desc.num_properties = ARRAY_SIZE(chr_type_properties);
@@ -851,14 +857,28 @@ static int mt6357_charger_type_probe(struct platform_device *pdev)
 		return PTR_ERR(info->psy);
 	}
 	pr_notice("%s register psy success\n", __func__);
-/*
+
 	info->chan_vbus = devm_iio_channel_get(
 		&pdev->dev, "pmic_vbus");
-	if (IS_ERR(info->chan_vbus)) {
-		pr_notice("chan_vbus auxadc get fail, ret=%d\n",
+	if (IS_ERR(info->chan_vbus))
+		pr_notice("chan_vbus auxadc get fail, ret=%ld\n",
 			PTR_ERR(info->chan_vbus));
-	}
-*/
+
+	/* MID7021: register ac/usb unconditionally. On stock these came from the
+	 * HL7005 driver; with no external charger IC the PMIC charger-type driver
+	 * must present them so healthd/charger sees a charge source. */
+	info->ac_psy = power_supply_register(&pdev->dev,
+			&info->ac_desc, &info->ac_cfg);
+	if (IS_ERR(info->ac_psy))
+		pr_notice("%s Failed to register ac psy: %ld\n",
+			__func__, PTR_ERR(info->ac_psy));
+
+	info->usb_psy = power_supply_register(&pdev->dev,
+			&info->usb_desc, &info->usb_cfg);
+	if (IS_ERR(info->usb_psy))
+		pr_notice("%s Failed to register usb psy: %ld\n",
+			__func__, PTR_ERR(info->usb_psy));
+
 	if (of_property_read_u32(np, "bc12_active", &info->bc12_active) < 0)
 		pr_notice("%s: no bc12_active\n", __func__);
 

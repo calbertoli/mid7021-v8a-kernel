@@ -126,13 +126,10 @@
 		compatible = "mediatek,mt6357-charger-type";
 		io-channels = <&pmic_auxadc AUXADC_VCDT>;
 		io-channel-names = "pmic_vbus";
-#ifdef CONFIG_TINNO_V770
-		bc12_active = <1>;
-#else
-		//bc12_active = <0>;
-		bc12_active = <1>;
-#endif
-		status = "disabled";
+		/* MID7021: ONLINE is read from the PMIC CHRDET bit in
+		 * mt6357-charger-type.c; BC1.2 type detection is not driven. */
+		bc12_active = <0>;
+		status = "okay";
 	};
 
 	mt6357_charger: mt6357_charger {
