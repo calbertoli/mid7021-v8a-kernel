@@ -81,7 +81,7 @@ static unsigned char kick_string_buffer_analysize[kick_dump_max_length] = { 0 };
 static unsigned int kick_buf_length;
 #endif
 
-static atomic_t idlemgr_task_wakeup = ATOMIC_INIT(1);
+static atomic_t idlemgr_task_wakeup = ATOMIC_INIT(0); /* MID7021: idle OFF (video-mode SAT070 blanks when stream stops) */
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
 	(CONFIG_MTK_DUAL_DISPLAY_SUPPORT == 2)
 static atomic_t ext_idlemgr_task_wakeup = ATOMIC_INIT(1);
@@ -1565,6 +1565,9 @@ void set_rdma_width_height(unsigned int width, unsigned int height)
 
 void enable_idlemgr(unsigned int flag)
 {
+	/* MID7021: SAT070 is VIDEO-mode (no GRAM). idlemgr stops the continuous DSI
+	 * stream on inactivity, blanking a video panel. Force idle permanently OFF. */
+	flag = 0;
 	if (flag) {
 		DISPCHECK("[disp_lowpower]enable idlemgr\n");
 		atomic_set(&idlemgr_task_wakeup, 1);
@@ -1588,6 +1591,7 @@ unsigned int set_idlemgr(unsigned int flag, int need_lock)
 {
 	unsigned int old_flag = atomic_read(&idlemgr_task_wakeup);
 
+	flag = 0; /* MID7021: force idle OFF, see enable_idlemgr() */
 	if (flag) {
 		DISPCHECK("[disp_lowpower]enable idlemgr\n");
 		atomic_set(&idlemgr_task_wakeup, 1);
