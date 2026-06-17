@@ -405,7 +405,7 @@ void disp_helper_option_init(void)
 	disp_helper_set_option(DISP_OPT_ARR_PHASE_1, 0);
 	/* HW does not support this */
 	disp_helper_set_option(DISP_OPT_RSZ, 0);
-	disp_helper_set_option(DISP_OPT_RPO, 1);
+	disp_helper_set_option(DISP_OPT_RPO, 0);
 	disp_helper_set_option(DISP_OPT_DUAL_PIPE, 0);
 	disp_helper_set_option(DISP_OPT_SHARE_WDMA0, 1);
 	disp_helper_set_option(DISP_OPT_FRAME_QUEUE, 0);
