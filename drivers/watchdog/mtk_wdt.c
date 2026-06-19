@@ -220,9 +220,20 @@ static void mtk_wdt_init(struct device_node *np,
 static int mid7021_reboot_notify(struct notifier_block *nb,
 				 unsigned long action, void *data)
 {
-	aee_sram_printk("[wdtk-reboot] REBOOT action=%lu reason=\"%s\" comm=%s pid=%d\n",
+	pr_emerg("[wdtk-reboot] REBOOT action=%lu reason=\"%s\" comm=%s pid=%d\n",
 		action, data ? (char *)data : "(null)",
 		current->comm, task_pid_nr(current));
+	/* MID7021 poweroff-trap (Fable 2026-06-15): the v8a wall now POWERS OFF, not
+	 * reboots. A cold power-off wipes the SRAM ring so expdb never gets a reason.
+	 * Convert SYS_POWER_OFF -> WARM reboot: SRAM survives the warm reset, LK flushes
+	 * the caller logged above into expdb on the next boot, AND it tests whether the
+	 * boot proceeds without the poweroff (cause) or loops at the same spot (symptom).
+	 * NO panic() in this path -- a panic here created the fake "30x bootloop" before. */
+	if (action == SYS_POWER_OFF) {
+		pr_emerg("[wdtk-pofftrap] intercept POWER_OFF -> warm reboot; caller comm=%s pid=%d\n",
+			current->comm, task_pid_nr(current));
+		emergency_restart();
+	}
 	return NOTIFY_DONE;
 }
 
@@ -233,7 +244,7 @@ static struct notifier_block mid7021_reboot_nb = {
 
 static int mid7021_panic_notify(struct notifier_block *nb, unsigned long ev, void *buf)
 {
-	aee_sram_printk("[wdtk-panic] PANIC comm=%s pid=%d msg=\"%s\"\n",
+	pr_emerg("[wdtk-panic] PANIC comm=%s pid=%d msg=\"%s\"\n",
 		current->comm, task_pid_nr(current), buf ? (char *)buf : "");
 	return NOTIFY_DONE;
 }
@@ -260,7 +271,7 @@ static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
 
 	wdt_base = mtk_wdt->wdt_base;
 
-	aee_sram_printk("[wdtk-restart] mtk_wdt_restart comm=%s pid=%d\n",
+	pr_emerg("[wdtk-restart] mtk_wdt_restart comm=%s pid=%d\n",
 		current->comm, task_pid_nr(current));
 
 	while (1) {
