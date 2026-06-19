@@ -647,7 +647,12 @@ static int mtkfb_pan_display_impl(struct fb_var_screeninfo *var,
 
 	input->alpha = 0xFF;
 	input->next_buff_idx = -1;
-	src_pitch = ALIGN_TO(var->xres, MTK_FB_ALIGNMENT);
+	/* MID7021 KPOC-shear fix: derive OVL src pitch from the REAL fb stride
+	 * (line_length) not var->xres, so the charger fb-pan scans 4096B/row not 3072. */
+	if ((var->bits_per_pixel >> 3) && !(info->fix.line_length % (var->bits_per_pixel >> 3)))
+		src_pitch = info->fix.line_length / (var->bits_per_pixel >> 3);
+	else
+		src_pitch = ALIGN_TO(var->xres, MTK_FB_ALIGNMENT);
 	input->src_pitch = src_pitch;
 	input->ext_sel_layer = -1;
 
