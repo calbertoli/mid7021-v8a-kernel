@@ -664,6 +664,12 @@ struct ion_handle *__ion_alloc(struct ion_client *client, size_t len,
 	 */
 	if (heap_id_mask == heap_mask)
 		heap_id_mask = ION_HEAP_MULTIMEDIA_MASK;
+	/* MID7021: donor PowerVR gralloc requests the FB heap (id 11,
+	 * ION_HEAP_FB_MASK) for the framebuffer, which this board does not
+	 * register; the display OVL/RDMA scan out via M4U (MVA), so the
+	 * M4U-mapped MM heap backs the framebuffer correctly. Redirect FB->MM. */
+	if (heap_id_mask == ION_HEAP_FB_MASK)
+		heap_id_mask = ION_HEAP_MULTIMEDIA_MASK;
 
 	len = PAGE_ALIGN(len);
 
@@ -703,7 +709,12 @@ struct ion_handle *__ion_alloc(struct ion_client *client, size_t len,
 	up_read(&dev->lock);
 
 	if (!buffer) {
+		struct ion_heap *dbg_heap;
+
 		IONMSG("%s buffer is null.\n", __func__);
+		pr_err("[MID7021_ION] NOMATCH req_mask=0x%x len=%zu flags=0x%x -- registered heaps:\n", heap_id_mask, len, flags);
+		plist_for_each_entry(dbg_heap, &dev->heaps, node)
+			pr_err("[MID7021_ION]   reg heap id=%d bit=0x%x name=%s type=%d\n", dbg_heap->id, (1 << dbg_heap->id), dbg_heap->name, dbg_heap->type);
 		return ERR_PTR(-ENODEV);
 	}
 

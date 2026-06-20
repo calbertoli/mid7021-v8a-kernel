@@ -2791,7 +2791,10 @@ static int shutdown_event_handler(struct mtk_battery *gm)
 			polling++;
 			if (duraction.tv_sec >= SHUTDOWN_TIME) {
 				bm_debug("soc zero shutdown\n");
-				kernel_power_off();
+				if (vbat < BAT_VOLTAGE_LOW_BOUND)
+					kernel_power_off();
+				else
+					bm_err("[mid7021] soc-zero shutdown VETOED vbat=%d (false-empty, soc=0 vbat-healthy)\n", vbat);
 				return next_waketime(polling);
 			}
 		} else if (current_soc > 0) {
@@ -2812,7 +2815,10 @@ static int shutdown_event_handler(struct mtk_battery *gm)
 				now, sdd->pre_time[UISOC_ONE_PERCENT]);
 			if (duraction.tv_sec >= SHUTDOWN_TIME) {
 				bm_debug("uisoc one percent shutdown\n");
-				kernel_power_off();
+				if (vbat < BAT_VOLTAGE_LOW_BOUND)
+					kernel_power_off();
+				else
+					bm_err("[mid7021] uisoc-one shutdown VETOED vbat=%d (false-empty, soc=0 vbat-healthy)\n", vbat);
 				return next_waketime(polling);
 			}
 		} else if (now_current > 0 && current_soc > 0) {

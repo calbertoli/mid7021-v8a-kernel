@@ -781,6 +781,7 @@ struct ion_heap *ion_mtk_heap_create(struct ion_platform_heap *heap_data)
 
 	heap->name = heap_data->name;
 	heap->id = heap_data->id;
+	pr_err("[MID7021_ION] CREATED heap name=%s id=%d type=%d\n", heap->name, heap->id, heap->type);
 	return heap;
 }
 
