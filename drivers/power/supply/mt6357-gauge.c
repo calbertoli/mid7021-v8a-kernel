@@ -2349,8 +2349,13 @@ static int ptim_resist_get(struct mtk_gauge *gauge,
 		if (ret < 0)
 			bm_err("[%s]read fail,ret=%d\n", __func__, ret);
 	} else {
-		bm_err("[%s]chan error\n", __func__);
-		ret = -ENOTSUPP;
+		/* MID7021: AUXADC IMIX_R channel is unavailable on arm64
+		 * (-ENODEV); feed the fuelgauge the onn 3200mAh (U308580PHV)
+		 * cell nominal internal resistance instead of -ENOTSUPP. With
+		 * no resistance the daemon computed a false-low vboot that
+		 * tripped the post-SurfaceFlinger low-battery poweroff. */
+		*val = 100; /* mOhm nominal DC-IR; refine vs stock if needed */
+		ret = 0;
 	}
 
 	return ret;
