@@ -307,6 +307,28 @@ static int battery_psy_get_property(struct power_supply *psy,
 			val->intval = gm->fixed_uisoc;
 		else
 			val->intval = bs_data->bat_capacity;
+		/* [mid7021] false-0 guard: in normal boot the GM3.0 daemon may
+		 * not have written back a uisoc yet (gm->ui_soc==0) while vbat is
+		 * clearly healthy -> Android healthd false-shutdowns. Bridge with
+		 * a coarse vbat estimate until the daemon delivers; a genuinely
+		 * low vbat (< BAT_VOLTAGE_LOW_BOUND) is left alone so real low-
+		 * battery protection still fires. */
+		if (val->intval <= 0) {
+			int vb = gauge_get_int_property(
+				GAUGE_PROP_BATTERY_VOLTAGE);
+
+			if (vb >= BAT_VOLTAGE_LOW_BOUND) {
+				int est = (vb - BAT_VOLTAGE_LOW_BOUND) / 9;
+
+				if (est > 100)
+					est = 100;
+				if (est < 15)
+					est = 15;
+				val->intval = est;
+				bm_err("[mid7021] cap false-0 guard vbat=%d uisoc=%d soc=%d -> %d\n",
+					vb, gm->ui_soc, gm->soc, est);
+			}
+		}
         #ifdef CONFIG_TINNO_SCC_SUPPORT
         capacity = val->intval;
         #endif  /* CONFIG_TINNO_SCC_SUPPORT */
