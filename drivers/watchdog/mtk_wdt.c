@@ -260,40 +260,10 @@ static struct notifier_block mid7021_panic_nb = {
 static struct timer_list mid7021_deadline_timer;
 static void mid7021_deadline_fire(struct timer_list *unused)
 {
-	struct task_struct *p, *ss = NULL, *zy = NULL;
-	static int ss_seen;
-	pid_t ss_pid = 0;
-
-	rcu_read_lock();
-	for_each_process(p) {
-		if (!strcmp(p->comm, "system_server")) {
-			ss = p;
-			ss_pid = task_pid_nr(p);
-		} else if (!strcmp(p->comm, "zygote64")) {
-			zy = p;
-		}
-	}
-	if (ss_pid && ss_seen >= 1) {
-		pr_emerg("[ss-snap] system_server pid=%d state=0x%lx wchan=%ps : DUMP+PANIC to flush ring\n",
-			 ss_pid, (unsigned long)ss->state, (void *)get_wchan(ss));
-		sched_show_task(ss);
-		if (zy)
-			sched_show_task(zy);
-	}
-	rcu_read_unlock();
-
-	/* PANIC = controlled WARM reboot that flushes the kernel ring -> ramoops
-	 * -> /metadata mid7021_pstore.txt next boot (the PROVEN sink: the old 900s
-	 * deadline panic landed there). A silent HANG never warm-reboots, so the
-	 * earlier pr_emerg samples were lost to a cold cut; force the flush here. */
-	if (ss_pid && ss_seen >= 1)
-		panic("ss-snap: system_server pid %d HUNG pre-run (stack above)", ss_pid);
-	if (!ss_pid && ss_seen >= 1)
-		panic("ss-snap: system_server VANISHED (exited/killed; see [ssprobe-*])");
-	if (ss_pid)
-		ss_seen++;
-	/* not forked yet (or 1st sighting -> let it settle 10s) -- look again */
-	mod_timer(&mid7021_deadline_timer, jiffies + 10 * HZ);
+	/* USB-test build: ss-probe disabled for a CLEAN boot (no panic) so the musb
+	 * probe at ~1s is read from the live kmsg and, if the UDC fix takes, adb has
+	 * a full window. Restore the panic version (commit 91d81301a) for the
+	 * system_server hunt if the USB unlock doesn't pan out. */
 }
 
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
