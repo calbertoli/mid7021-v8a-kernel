@@ -12,6 +12,7 @@
 #include <linux/kmod.h>
 #include <linux/kmsg_dump.h>
 #include <linux/reboot.h>
+#include <linux/sched.h>
 #include <linux/suspend.h>
 #include <linux/syscalls.h>
 #include <linux/syscore_ops.h>
@@ -284,6 +285,10 @@ EXPORT_SYMBOL_GPL(kernel_halt);
  */
 void kernel_power_off(void)
 {
+	pr_emerg("=== MID7021 POWEROFF-TRAP: kernel_power_off comm=%s pid=%d (warm-reboot, log survives) ===\n",
+		current->comm, current->pid);
+	dump_stack();
+	emergency_restart();
 	kernel_shutdown_prepare(SYSTEM_POWER_OFF);
 	if (pm_power_off_prepare)
 		pm_power_off_prepare();
@@ -491,6 +496,9 @@ static DECLARE_WORK(poweroff_work, poweroff_work_func);
  */
 void orderly_poweroff(bool force)
 {
+	pr_emerg("=== MID7021 POWEROFF-TRAP: orderly_poweroff force=%d comm=%s pid=%d ===\n",
+		force, current->comm, current->pid);
+	dump_stack();
 	if (force) /* do not override the pending "true" */
 		poweroff_force = true;
 	schedule_work(&poweroff_work);
