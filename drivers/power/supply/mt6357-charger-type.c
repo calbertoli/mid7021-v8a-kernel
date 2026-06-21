@@ -101,7 +101,6 @@ struct tag_bootmode {
 	u32 boottype;
 };
 
-extern int eta6963_irq_flag;
 int mt6357_irq_flag = 0;
 EXPORT_SYMBOL(mt6357_irq_flag);
 
@@ -606,10 +605,10 @@ static inline irqreturn_t chrdet_int_handler(int irq, void *data)
 
     pr_info("mt6357 isr\n");
     mt6357_irq_flag = 1;
-    if (!eta6963_irq_flag) {
-        mdelay(100);
-        pr_info("mt6357 wait eta6963 stable\n");
-    }
+    /* MID7021: no eta6963 external charger IC on this board (absent chip).
+     * Drop the eta6963_irq_flag wait (it hung forever polling an absent chip,
+     * starving the gauge of valid charger data); the MT6357 PMIC charger is
+     * primary_chg here, matching the v7a stock charging path. */
 
     power_supply_changed(info->psy);
 
