@@ -28,6 +28,8 @@
 #include <linux/sched.h>
 #include <linux/timer.h>
 #include <linux/sched/debug.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/task_stack.h>
 #include <mt-plat/aee.h>
 #include <asm/system_misc.h>
 
@@ -258,9 +260,31 @@ static struct notifier_block mid7021_panic_nb = {
 static struct timer_list mid7021_deadline_timer;
 static void mid7021_deadline_fire(struct timer_list *unused)
 {
-	pr_emerg("[wdtk-deadline] 900s: boot stalled; dumping ALL tasks then panicking\n");
-	show_state();
-	mod_timer(&mid7021_deadline_timer, jiffies + 240 * HZ); /* NEUTERED: re-arm periodic snapshot, NO panic (diag) */
+	struct task_struct *p;
+	static int snap;
+
+	snap++;
+	aee_sram_printk("[ss-snap %d] system_server/zygote task states:\n", snap);
+	rcu_read_lock();
+	for_each_process(p) {
+		unsigned long wc;
+
+		if (strcmp(p->comm, "system_server") &&
+		    strcmp(p->comm, "main") &&
+		    strcmp(p->comm, "zygote64") &&
+		    strcmp(p->comm, "zygote_secondary") &&
+		    strcmp(p->comm, "zygote"))
+			continue;
+		wc = get_wchan(p);
+		aee_sram_printk("[ss-snap %d] comm=%s pid=%d ppid=%d state=0x%lx wchan=%ps syscall=%d\n",
+				snap, p->comm, task_pid_nr(p),
+				task_pid_nr(p->real_parent), (unsigned long)p->state,
+				(void *)wc, (int)task_pt_regs(p)->syscallno);
+	}
+	rcu_read_unlock();
+	/* sample every 15s; first fire ~40s (before the ~165s reboot) so we catch
+	 * system_server's blocked wchan/syscall and ship it to expdb (logd frozen) */
+	mod_timer(&mid7021_deadline_timer, jiffies + 15 * HZ);
 }
 
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
@@ -389,7 +413,7 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 	pr_emerg("[wdtk-canary] mid7021 reboot-capture+SELdev+deadline ACTIVE (mtk_wdt probe)\n");
 	aee_sram_printk("[wdtk] arm_pm_restart=%ps\n", arm_pm_restart);
 	timer_setup(&mid7021_deadline_timer, mid7021_deadline_fire, 0);
-	mod_timer(&mid7021_deadline_timer, jiffies + 240 * HZ);
+	mod_timer(&mid7021_deadline_timer, jiffies + 40 * HZ);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mtk_wdt->wdt_base = devm_ioremap_resource(&pdev->dev, res);
