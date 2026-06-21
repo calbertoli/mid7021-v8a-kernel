@@ -1087,6 +1087,7 @@ static inline void userns_fixup_signal_uid(struct siginfo *info, struct task_str
 }
 #endif
 
+extern void aee_sram_printk(const char *fmt, ...);
 static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			enum pid_type type, int from_ancestor_ns)
 {
@@ -1096,6 +1097,11 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	int ret = 0, result;
 
 	assert_spin_locked(&t->sighand->siglock);
+
+	if ((sig == SIGKILL || sig == SIGABRT || sig == SIGSEGV || sig == SIGSYS) &&
+	    !strncmp(t->comm, "system_server", 13))
+		aee_sram_printk("[ssprobe-sig] sig=%d -> %s(pid=%d) from %s(pid=%d)\n",
+			sig, t->comm, t->pid, current->comm, current->pid);
 
 	result = TRACE_SIGNAL_IGNORED;
 	if (!prepare_signal(sig, t,
