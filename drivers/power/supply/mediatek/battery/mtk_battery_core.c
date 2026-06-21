@@ -1979,16 +1979,6 @@ static int _get_ptim_rac_val(void)
 	else
 		rac = get_rac();
 
-	/* MID7021: the AUXADC IMIX_R channel is -ENODEV on this arm64 port, so
-	 * get_rac() returns 0 -> the fuelgauged daemon computes
-	 * sw_ocv = vbat - ibat*0 = the raw load-sagged PTIM voltage (3.6V@6.4A)
-	 * -> OCV->SOC seeds 0 -> false low-battery poweroff ~150s post-boot.
-	 * Floor RAC at the cell's nominal DC-IR so the daemon IR-compensates the
-	 * boot OCV (3.6V + 6.4A*0.1ohm ~= 4.25V -> ~95%) instead of seeding empty.
-	 * Real fix is restoring the measured IMIX_R channel; this is the floor. */
-	if (rac <= 0)
-		rac = 100; /* mOhm; matches the mt6357-gauge ptim_resist fallback */
-
 	return rac;
 }
 
