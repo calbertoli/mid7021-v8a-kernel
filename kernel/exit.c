@@ -779,7 +779,7 @@ void __noreturn do_exit(long code)
 
 	if (!strncmp(tsk->comm, "system_server", 13) ||
 	    (tsk->real_parent && !strncmp(tsk->real_parent->comm, "zygote", 6)))
-		aee_sram_printk("[ssprobe-exit] comm=%s pid=%d code=0x%lx sig=%d status=%d ppid=%d(%s)\n",
+		pr_emerg("[ssprobe-exit] comm=%s pid=%d code=0x%lx sig=%d status=%d ppid=%d(%s)\n",
 			tsk->comm, tsk->pid, (unsigned long)code, (int)(code & 0x7f),
 			(int)((code >> 8) & 0xff),
 			tsk->real_parent ? tsk->real_parent->pid : -1,

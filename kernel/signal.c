@@ -1100,7 +1100,7 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 
 	if ((sig == SIGKILL || sig == SIGABRT || sig == SIGSEGV || sig == SIGSYS) &&
 	    !strncmp(t->comm, "system_server", 13))
-		aee_sram_printk("[ssprobe-sig] sig=%d -> %s(pid=%d) from %s(pid=%d)\n",
+		pr_emerg("[ssprobe-sig] sig=%d -> %s(pid=%d) from %s(pid=%d)\n",
 			sig, t->comm, t->pid, current->comm, current->pid);
 
 	result = TRACE_SIGNAL_IGNORED;

@@ -264,7 +264,7 @@ static void mid7021_deadline_fire(struct timer_list *unused)
 	static int snap;
 
 	snap++;
-	aee_sram_printk("[ss-snap %d] system_server/zygote task states:\n", snap);
+	pr_emerg("[ss-snap %d] system_server/zygote task states:\n", snap);
 	rcu_read_lock();
 	for_each_process(p) {
 		unsigned long wc;
@@ -276,7 +276,7 @@ static void mid7021_deadline_fire(struct timer_list *unused)
 		    strcmp(p->comm, "zygote"))
 			continue;
 		wc = get_wchan(p);
-		aee_sram_printk("[ss-snap %d] comm=%s pid=%d ppid=%d state=0x%lx wchan=%ps syscall=%d\n",
+		pr_emerg("[ss-snap %d] comm=%s pid=%d ppid=%d state=0x%lx wchan=%ps syscall=%d\n",
 				snap, p->comm, task_pid_nr(p),
 				task_pid_nr(p->real_parent), (unsigned long)p->state,
 				(void *)wc, (int)task_pt_regs(p)->syscallno);
