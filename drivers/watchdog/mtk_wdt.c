@@ -260,31 +260,40 @@ static struct notifier_block mid7021_panic_nb = {
 static struct timer_list mid7021_deadline_timer;
 static void mid7021_deadline_fire(struct timer_list *unused)
 {
-	struct task_struct *p;
-	static int snap;
+	struct task_struct *p, *ss = NULL, *zy = NULL;
+	static int ss_seen;
+	pid_t ss_pid = 0;
 
-	snap++;
-	pr_emerg("[ss-snap %d] system_server/zygote task states:\n", snap);
 	rcu_read_lock();
 	for_each_process(p) {
-		unsigned long wc;
-
-		if (strcmp(p->comm, "system_server") &&
-		    strcmp(p->comm, "main") &&
-		    strcmp(p->comm, "zygote64") &&
-		    strcmp(p->comm, "zygote_secondary") &&
-		    strcmp(p->comm, "zygote"))
-			continue;
-		wc = get_wchan(p);
-		pr_emerg("[ss-snap %d] comm=%s pid=%d ppid=%d state=0x%lx wchan=%ps syscall=%d\n",
-				snap, p->comm, task_pid_nr(p),
-				task_pid_nr(p->real_parent), (unsigned long)p->state,
-				(void *)wc, (int)task_pt_regs(p)->syscallno);
+		if (!strcmp(p->comm, "system_server")) {
+			ss = p;
+			ss_pid = task_pid_nr(p);
+		} else if (!strcmp(p->comm, "zygote64")) {
+			zy = p;
+		}
+	}
+	if (ss_pid && ss_seen >= 1) {
+		pr_emerg("[ss-snap] system_server pid=%d state=0x%lx wchan=%ps : DUMP+PANIC to flush ring\n",
+			 ss_pid, (unsigned long)ss->state, (void *)get_wchan(ss));
+		sched_show_task(ss);
+		if (zy)
+			sched_show_task(zy);
 	}
 	rcu_read_unlock();
-	/* sample every 15s; first fire ~40s (before the ~165s reboot) so we catch
-	 * system_server's blocked wchan/syscall and ship it to expdb (logd frozen) */
-	mod_timer(&mid7021_deadline_timer, jiffies + 15 * HZ);
+
+	/* PANIC = controlled WARM reboot that flushes the kernel ring -> ramoops
+	 * -> /metadata mid7021_pstore.txt next boot (the PROVEN sink: the old 900s
+	 * deadline panic landed there). A silent HANG never warm-reboots, so the
+	 * earlier pr_emerg samples were lost to a cold cut; force the flush here. */
+	if (ss_pid && ss_seen >= 1)
+		panic("ss-snap: system_server pid %d HUNG pre-run (stack above)", ss_pid);
+	if (!ss_pid && ss_seen >= 1)
+		panic("ss-snap: system_server VANISHED (exited/killed; see [ssprobe-*])");
+	if (ss_pid)
+		ss_seen++;
+	/* not forked yet (or 1st sighting -> let it settle 10s) -- look again */
+	mod_timer(&mid7021_deadline_timer, jiffies + 10 * HZ);
 }
 
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
