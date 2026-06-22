@@ -260,10 +260,38 @@ static struct notifier_block mid7021_panic_nb = {
 static struct timer_list mid7021_deadline_timer;
 static void mid7021_deadline_fire(struct timer_list *unused)
 {
-	/* USB-test build: ss-probe disabled for a CLEAN boot (no panic) so the musb
-	 * probe at ~1s is read from the live kmsg and, if the UDC fix takes, adb has
-	 * a full window. Restore the panic version (commit 91d81301a) for the
-	 * system_server hunt if the USB unlock doesn't pan out. */
+	struct task_struct *g, *p;
+	static int snap;
+	int n = 0;
+
+	snap++;
+	aee_sram_printk("[ss-snap %d] crit-procs + D-state (wdt-wedge hunt):\n", snap);
+	rcu_read_lock();
+	for_each_process_thread(g, p) {
+		unsigned long wc;
+		int sc = -1;
+		bool targeted = !strcmp(p->comm, "system_server") ||
+				!strcmp(p->comm, "main") ||
+				!strncmp(p->comm, "zygote", 6) ||
+				!strcmp(p->comm, "watchdogd") ||
+				!strncmp(p->comm, "kworker/u16", 11) ||
+				!strncmp(p->comm, "android.hardwar", 15);
+		bool dstate = ((p->state & TASK_UNINTERRUPTIBLE) != 0);
+
+		if (!targeted && !dstate)
+			continue;
+		if (++n > 32)
+			break;
+		wc = get_wchan(p);
+		if (p->mm)
+			sc = (int)task_pt_regs(p)->syscallno;
+		aee_sram_printk("[ss-snap %d] comm=%s pid=%d state=0x%lx wchan=%ps sc=%d%s\n",
+				snap, p->comm, task_pid_nr(p),
+				(unsigned long)p->state, (void *)wc, sc,
+				dstate ? " [D]" : "");
+	}
+	rcu_read_unlock();
+	mod_timer(&mid7021_deadline_timer, jiffies + 15 * HZ);
 }
 
 static int mtk_wdt_restart(struct watchdog_device *wdt_dev,
