@@ -21,6 +21,7 @@
 #include <linux/init.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
+#include <linux/input/mt.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
@@ -153,20 +154,15 @@ static irqreturn_t cst_irq_thread(int irq, void *dev_id)
 	u8 reg = 0x00;
 	u8 buf[CST_REPORT_LEN] = { 0 };
 	u8 ack[3] = { 0x00, 0xab, 0x00 };
+	unsigned int active = 0;
 	int num, i, idx;
-	bool any = false;
 
 	if (cst_read(ts->client, &reg, 1, buf, CST_REPORT_LEN))
 		goto out;
 
 	num = buf[5] & 0x7f;
-	if (num == 0 || num > CST_MAX_POINTS) {
-		/* all up */
-		input_report_key(tpd->dev, BTN_TOUCH, 0);
-		input_mt_sync(tpd->dev);
-		input_sync(tpd->dev);
-		goto ack;
-	}
+	if (num > CST_MAX_POINTS)
+		num = CST_MAX_POINTS;
 
 	idx = 0;
 	for (i = 0; i < num; i++) {
@@ -177,22 +173,32 @@ static irqreturn_t cst_irq_thread(int irq, void *dev_id)
 
 		cst_transform(ts, &x, &y);
 
-		input_report_key(tpd->dev, BTN_TOUCH, 1);
-		input_report_abs(tpd->dev, ABS_MT_TRACKING_ID, id);
-		input_report_abs(tpd->dev, ABS_MT_TOUCH_MAJOR, p ? p : 1);
-		input_report_abs(tpd->dev, ABS_MT_POSITION_X, x);
-		input_report_abs(tpd->dev, ABS_MT_POSITION_Y, y);
-		input_mt_sync(tpd->dev);
-		any = true;
+		if (id >= 0 && id < CST_MAX_POINTS) {
+			active |= 1u << id;
+			input_mt_slot(tpd->dev, id);
+			input_mt_report_slot_state(tpd->dev, MT_TOOL_FINGER, true);
+			input_report_abs(tpd->dev, ABS_MT_POSITION_X, x);
+			input_report_abs(tpd->dev, ABS_MT_POSITION_Y, y);
+			input_report_abs(tpd->dev, ABS_MT_TOUCH_MAJOR, p ? p : 1);
+			input_report_abs(tpd->dev, ABS_MT_WIDTH_MAJOR, p ? p : 1);
+			input_report_abs(tpd->dev, ABS_MT_PRESSURE, p ? p : 1);
+		}
 
 		idx += (i == 0) ? 7 : 5;
 		if (idx + 4 >= CST_REPORT_LEN)
 			break;
 	}
-	if (any)
-		input_sync(tpd->dev);
 
-ack:
+	/* release slots not reported this frame (type-B, matches stock hyn_ts) */
+	for (i = 0; i < CST_MAX_POINTS; i++) {
+		if (active & (1u << i))
+			continue;
+		input_mt_slot(tpd->dev, i);
+		input_mt_report_slot_state(tpd->dev, MT_TOOL_FINGER, false);
+	}
+	input_mt_report_pointer_emulation(tpd->dev, true);
+	input_sync(tpd->dev);
+
 	/* CST acknowledge: clear status so the next IRQ fires */
 	cst_write(ts->client, ack, 3);
 out:
@@ -271,7 +277,9 @@ static int cst_i2c_probe(struct i2c_client *client,
 	input_set_abs_params(tpd->dev, ABS_MT_POSITION_X, 0, ts->x_max - 1, 0, 0);
 	input_set_abs_params(tpd->dev, ABS_MT_POSITION_Y, 0, ts->y_max - 1, 0, 0);
 	input_set_abs_params(tpd->dev, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
-	input_set_abs_params(tpd->dev, ABS_MT_TRACKING_ID, 0, CST_MAX_POINTS - 1, 0, 0);
+	input_set_abs_params(tpd->dev, ABS_MT_WIDTH_MAJOR, 0, 255, 0, 0);
+	input_set_abs_params(tpd->dev, ABS_MT_PRESSURE, 0, 255, 0, 0);
+	input_mt_init_slots(tpd->dev, CST_MAX_POINTS, INPUT_MT_DIRECT);
 
 	ts->irq = client->irq;
 	if (ts->irq <= 0 && gpio_is_valid(ts->int_gpio))
