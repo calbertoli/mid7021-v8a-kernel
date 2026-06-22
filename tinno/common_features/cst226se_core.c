@@ -160,9 +160,16 @@ static irqreturn_t cst_irq_thread(int irq, void *dev_id)
 	if (cst_read(ts->client, &reg, 1, buf, CST_REPORT_LEN))
 		goto out;
 
+	/*
+	 * SensorLib CST226 frame-validity gates (these were MISSING -> the
+	 * sticky/no-release bug + garbage coords): a frame is real touch data
+	 * ONLY when buf[6]==0xAB and buf[0] is a point header. A lift/empty/
+	 * invalid frame -> num=0 -> the release loop below fires (clean lift).
+	 */
 	num = buf[5] & 0x7f;
-	if (num > CST_MAX_POINTS)
-		num = CST_MAX_POINTS;
+	if (buf[6] != 0xAB || buf[0] == 0xAB || buf[0] == 0x00 ||
+	    buf[5] == 0x80 || num > CST_MAX_POINTS)
+		num = 0;
 
 	idx = 0;
 	for (i = 0; i < num; i++) {
