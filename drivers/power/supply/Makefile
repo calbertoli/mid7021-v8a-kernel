@@ -40,6 +40,7 @@ mt6357_battery-objs := mtk_battery_coulomb_service.o mtk_battery.o mtk_battery_a
 obj-$(CONFIG_BATTERY_MT6359) += mt6359_battery.o
 mt6359_battery-objs := mtk_battery_coulomb_service.o mtk_battery.o mtk_battery_algo.o mtk_battery_daemon.o mt6359-gauge.o
 obj-$(CONFIG_CHARGER_TYPE_MT6357) += mt6357-charger-type.o
+obj-$(CONFIG_CHARGER_HL7005) += hl7005.o
 obj-$(CONFIG_MTK_CHARGER) += charger_class.o mtk_basic_charger.o mtk_charger.o mtk_charger_algorithm_class.o mtk_charger_intf.o adapter_class.o mtk_pd_adapter.o mtk_pd.o mtk_pd_hal.o mtk_pulse_charger.o
 obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_20_SUPPORT) += mtk_pe2.o mtk_pe2_hal.o
 obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT) += mtk_pe.o mtk_pe_hal.o
@@ -161,3 +162,11 @@ obj-$(CONFIG_TINNO_SCC_SUPPORT) += scc_drv.o
 ifeq ($(CONFIG_CUSTOM_BATTERY_EXTERNAL_CHANNEL),y)
 	obj-y += k6885v1_64_alpha/
 endif
+
+# ported HL7005 needs MTK PMIC/platform includes (mirrors old mediatek/charger Makefile)
+CFLAGS_hl7005.o += -I$(srctree)/drivers/misc/mediatek/include
+CFLAGS_hl7005.o += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/$(MTK_PLATFORM)/include
+CFLAGS_hl7005.o += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
+CFLAGS_hl7005.o += -I$(srctree)/drivers/misc/mediatek/base/power/include
+CFLAGS_hl7005.o += -I$(srctree)/drivers/misc/mediatek/pmic/include
+CFLAGS_hl7005.o += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/v1

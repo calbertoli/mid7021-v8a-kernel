@@ -715,6 +715,18 @@ config CHARGER_MT6357
 	  This driver use MT6357 to charge
 	  Say no if not using MT6357 to charge
 
+config CHARGER_HL7005
+	bool "Halo HL7005 charger IC (ported to new fw)"
+	depends on MTK_CHARGER
+
+config CHARGER_HL7005_USE_MT6357_FUNC
+	bool "HL7005 use MT6357 PMIC funcs"
+	depends on CHARGER_HL7005
+
+config CHARGER_HL7005_CURRENT_SELECT
+	bool "HL7005 current select"
+	depends on CHARGER_HL7005
+
 config MTK_CHARGER
 	bool "MediaTek Charging Driver"
 	help
