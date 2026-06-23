@@ -150,6 +150,7 @@ unsigned int bc11_get_register_value(struct regmap *map,
 
 static void hw_bc11_init(struct mtk_charger_type *info)
 {
+	msleep(200); /* VBUS/USB readiness settle before BC1.2 (MTK ref) */
 //#if IS_ENABLED(CONFIG_USB_MTK_HDRC)
 //	int timeout = 200;
 //#endif
@@ -605,6 +606,7 @@ static inline irqreturn_t chrdet_int_handler(int irq, void *data)
 
     pr_info("mt6357 isr\n");
     mt6357_irq_flag = 1;
+    schedule_work(&info->chr_work);
     /* MID7021: no eta6963 external charger IC on this board (absent chip).
      * Drop the eta6963_irq_flag wait (it hung forever polling an absent chip,
      * starving the gauge of valid charger data); the MT6357 PMIC charger is
@@ -903,7 +905,7 @@ static int mt6357_charger_type_probe(struct platform_device *pdev)
 		}*/
 
 		INIT_WORK(&info->chr_work, do_charger_detection_work);
-		//schedule_work(&info->chr_work);
+		schedule_work(&info->chr_work);
 
 		ret = devm_request_threaded_irq(&pdev->dev,
 			platform_get_irq_byname(pdev, "chrdet"), NULL,
