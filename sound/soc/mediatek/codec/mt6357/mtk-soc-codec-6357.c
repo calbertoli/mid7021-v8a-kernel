@@ -225,6 +225,11 @@ void SetAnalogSuspend(bool bEnable)
 {
 	pr_debug("%s bEnable ==%d mAnaSuspend = %d\n",
 		 __func__, bEnable, mAnaSuspend);
+	if (!mCodec_data) {
+		pr_info_once("%s: codec not initialized; skip analog suspend (MID7021)\n",
+			__func__);
+		return;
+	}
 	if ((bEnable == true) && (mAnaSuspend == false)) {
 		/*Ana_Log_Print();*/
 		SavePowerState();
