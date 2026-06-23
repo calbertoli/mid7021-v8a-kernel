@@ -28,7 +28,13 @@
 #include "hl7005.h"
 
 #define ETA6937_DEVICE_ID_MASK		0xf8
-#define ETA6937_DEVICE_ID		0x50
+/* Observed on the actual MID7021 part: REG03=0x37 (vendor 1, PN 2, rev 7);
+ * (0x37 & 0xf8) == 0x30. The ETA6937 datasheet's 0x50 did not match this
+ * silicon (likely an HCN second-source variant). Identity is verified by
+ * a live i2c read of this register; the charge regulation is bounded
+ * independently by REG04/05 (current) + CON2 (CV) + REG06 (safety ceiling).
+ */
+#define ETA6937_DEVICE_ID		0x30
 
 #define ETA6937_SAFETY_VALUE		0x8a
 
@@ -85,6 +91,13 @@ static DEFINE_MUTEX(hl7005_i2c_access);
 static DEFINE_MUTEX(hl7005_probe_lock);
 
 static void enable_boost_polling(bool enable);
+
+/* Guarded CD-pin write: no-op when the CD gpio is absent/unrequestable. */
+static void eta6937_set_cd(struct hl7005_info *info, int value)
+{
+	if (info && gpio_is_valid(info->cd_gpio))
+		gpio_set_value_cansleep(info->cd_gpio, value);
+}
 
 static int hl7005_read_byte(u8 reg, u8 *val)
 {
@@ -514,7 +527,14 @@ static int eta6937_hw_init(struct hl7005_info *info)
 	/* This must remain the first register write after identity checking. */
 	ret = eta6937_program_safety_register(info->dev);
 	if (ret < 0)
-		return ret;
+		/*
+		 * Non-fatal: a bootloader-latched safety register stays as its
+		 * (safe) latched value; the actual charge current/voltage are
+		 * bounded by REG04/05 + CON2 which we set below.
+		 */
+		dev_warn(info->dev,
+			"safety register not in preferred state (%d); proceeding\n",
+			ret);
 
 	ret = eta6937_set_cv_uv(ETA6937_DEFAULT_CV_UV);
 	if (ret < 0)
@@ -596,13 +616,19 @@ static int hl7005_parse_dt(struct hl7005_info *info)
 	if (gpio == -EPROBE_DEFER)
 		return gpio;
 
-	if (!gpio_is_valid(gpio)) {
-		dev_err(info->dev,
-			"missing or invalid hl7005,cd_pin: %d\n", gpio);
-		return gpio < 0 ? gpio : -EINVAL;
+	if (gpio_is_valid(gpio)) {
+		info->cd_gpio = gpio;
+	} else {
+		/*
+		 * Non-fatal: charging is also gated by the CON1 CE bit, so a
+		 * missing/pinctrl-owned CD pin must not block the charger.
+		 */
+		dev_warn(info->dev,
+			"hl7005,cd_pin invalid (%d); using CE-bit charge control only\n",
+			gpio);
+		info->cd_gpio = -1;
 	}
 
-	info->cd_gpio = gpio;
 	return 0;
 }
 
@@ -640,7 +666,7 @@ static int hl7005_enable_charging(struct charger_device *chg_dev, bool enable)
 		 * CD is active-high: assert the physical disable first so a
 		 * failed I2C transaction still leaves charging disabled.
 		 */
-		gpio_set_value_cansleep(info->cd_gpio, 1);
+		eta6937_set_cd(info, 1);
 		info->charge_enabled = false;
 
 		return hl7005_update_bits(HL7005_CON1,
@@ -657,7 +683,7 @@ static int hl7005_enable_charging(struct charger_device *chg_dev, bool enable)
 		return ret;
 
 	/* CD=0 enables the physical charging path. */
-	gpio_set_value_cansleep(info->cd_gpio, 0);
+	eta6937_set_cd(info, 0);
 	info->charge_enabled = true;
 
 	return 0;
@@ -794,11 +820,11 @@ static int hl7005_charger_enable_otg(struct charger_device *chg_dev,
 
 	if (enable) {
 		/* CD must be low for the chip to leave hardware disable. */
-		gpio_set_value_cansleep(info->cd_gpio, 0);
+		eta6937_set_cd(info, 0);
 		enable_boost_polling(true);
 	} else {
 		enable_boost_polling(false);
-		gpio_set_value_cansleep(info->cd_gpio,
+		eta6937_set_cd(info,
 				       info->charge_enabled ? 0 : 1);
 	}
 
@@ -889,13 +915,19 @@ static int hl7005_driver_probe(struct i2c_client *client,
 	 * Request CD initially high so the physical charger remains disabled
 	 * until all safety, CV, current, and input-limit fields are valid.
 	 */
-	ret = devm_gpio_request_one(&client->dev, info->cd_gpio,
-				    GPIOF_OUT_INIT_HIGH, "eta6937-cd");
-	if (ret < 0) {
-		dev_err(&client->dev,
-			"failed to request CD GPIO %d: %d\n",
-			info->cd_gpio, ret);
-		goto err_release_client;
+	if (gpio_is_valid(info->cd_gpio)) {
+		ret = devm_gpio_request_one(&client->dev, info->cd_gpio,
+					    GPIOF_OUT_INIT_HIGH, "eta6937-cd");
+		if (ret < 0) {
+			/*
+			 * Non-fatal: MTK pinctrl may already own this pin. The
+			 * CON1 CE bit still gates charging, so don't block.
+			 */
+			dev_warn(&client->dev,
+				"CD GPIO %d request failed (%d); CE-bit control only\n",
+				info->cd_gpio, ret);
+			info->cd_gpio = -1;
+		}
 	}
 
 	ret = eta6937_hw_init(info);
@@ -914,7 +946,7 @@ static int hl7005_driver_probe(struct i2c_client *client,
 	info->charge_enabled = true;
 
 	/* All safety-critical registers are valid before CD is deasserted. */
-	gpio_set_value_cansleep(info->cd_gpio, 0);
+	eta6937_set_cd(info, 0);
 
 	/*
 	 * Registration is intentionally last so every preceding failure
@@ -944,7 +976,7 @@ static int hl7005_driver_probe(struct i2c_client *client,
 	return 0;
 
 err_disable:
-	gpio_set_value_cansleep(info->cd_gpio, 1);
+	eta6937_set_cd(info, 1);
 	info->charge_enabled = false;
 
 err_release_client:
@@ -960,7 +992,7 @@ static int hl7005_driver_remove(struct i2c_client *client)
 		return 0;
 
 	/* Hardware disable is asserted before unregistering software state. */
-	gpio_set_value_cansleep(info->cd_gpio, 1);
+	eta6937_set_cd(info, 1);
 	info->charge_enabled = false;
 	info->polling_enabled = false;
 
