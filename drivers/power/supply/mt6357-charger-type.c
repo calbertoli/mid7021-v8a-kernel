@@ -636,7 +636,20 @@ static int psy_chr_type_get_property(struct power_supply *psy,
 				PMIC_RGS_CHRDET_SHIFT);
 		break;
 	case POWER_SUPPLY_PROP_TYPE:
-		 val->intval = POWER_SUPPLY_TYPE_MAIN;
+		switch (info->type) {
+		case POWER_SUPPLY_USB_TYPE_SDP:
+			val->intval = POWER_SUPPLY_TYPE_USB;
+			break;
+		case POWER_SUPPLY_USB_TYPE_CDP:
+			val->intval = POWER_SUPPLY_TYPE_USB_CDP;
+			break;
+		case POWER_SUPPLY_USB_TYPE_DCP:
+			val->intval = POWER_SUPPLY_TYPE_USB_DCP;
+			break;
+		default:
+			val->intval = POWER_SUPPLY_TYPE_UNKNOWN;
+			break;
+		}
 		break;
 	case POWER_SUPPLY_PROP_USB_TYPE:
 		val->intval = info->type;
@@ -806,6 +819,13 @@ static int mt6357_charger_type_probe(struct platform_device *pdev)
 	if (!info)
 		return -ENOMEM;
 
+	info->chan_vbus = devm_iio_channel_get(dev, "pmic_vbus");
+	if (IS_ERR(info->chan_vbus)) {
+		ret = PTR_ERR(info->chan_vbus);
+		pr_notice("chan_vbus auxadc get fail, ret=%d\n", ret);
+		return ret;
+	}
+
 	info->chip = (struct mt6397_chip *)dev_get_drvdata(
 		pdev->dev.parent);
 	info->regmap = info->chip->regmap;
@@ -859,11 +879,6 @@ static int mt6357_charger_type_probe(struct platform_device *pdev)
 	}
 	pr_notice("%s register psy success\n", __func__);
 
-	info->chan_vbus = devm_iio_channel_get(
-		&pdev->dev, "pmic_vbus");
-	if (IS_ERR(info->chan_vbus))
-		pr_notice("chan_vbus auxadc get fail, ret=%ld\n",
-			PTR_ERR(info->chan_vbus));
 
 	/* MID7021: register ac/usb unconditionally. On stock these came from the
 	 * HL7005 driver; with no external charger IC the PMIC charger-type driver
