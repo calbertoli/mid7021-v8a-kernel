@@ -1,624 +1,616 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
+ * ETA6937 charger-class driver, retained as hl7005.c for existing
+ * MediaTek build integration.
+ *
  * Copyright (c) 2021 MediaTek Inc.
-*/
+ */
 
 #include <linux/alarmtimer.h>
-#include <linux/init.h>
-#include <linux/module.h>
-#include <linux/fs.h>
+#include <linux/bitops.h>
 #include <linux/device.h>
-#include <linux/interrupt.h>
-#include <linux/spinlock.h>
-#include <linux/platform_device.h>
-#include <linux/device.h>
-#include <linux/kdev_t.h>
-#include <linux/fs.h>
-#include <linux/cdev.h>
-#include <linux/delay.h>
-#include <linux/kernel.h>
-#include <linux/init.h>
-#include <linux/types.h>
-#include <linux/wait.h>
-#include <linux/slab.h>
-#include <linux/fs.h>
-#include <linux/sched.h>
-#include <linux/poll.h>
-#include <linux/power_supply.h>
-#include <linux/time.h>
-#include <linux/mutex.h>
-#include <linux/kthread.h>
-#include <linux/proc_fs.h>
-#include <linux/platform_device.h>
-#include <linux/seq_file.h>
-#include <linux/scatterlist.h>
-#include <linux/suspend.h>
-#include <linux/version.h>
+#include <linux/err.h>
+#include <linux/errno.h>
+#include <linux/gpio.h>
 #include <linux/i2c.h>
-
-#ifdef CONFIG_OF
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
-#include <linux/of_irq.h>
-#include <linux/of_address.h>
-#include <linux/of_device.h>
-#endif
-#include "upmu_common.h"
-#include "hl7005.h"
+#include <linux/of_gpio.h>
+#include <linux/slab.h>
+#include <linux/time.h>
+#include <linux/workqueue.h>
+#include <linux/power_supply.h>
+
 #include "charger_class.h"
 #include "mtk_charger.h"
-#include "charger_type.h"
+#include "hl7005.h"
 
-const unsigned int VBAT_CVTH[] = {
-	3500000, 3520000, 3540000, 3560000,
-	3580000, 3600000, 3620000, 3640000,
-	3660000, 3680000, 3700000, 3720000,
-	3740000, 3760000, 3780000, 3800000,
-	3820000, 3840000, 3860000, 3880000,
-	3900000, 3920000, 3940000, 3960000,
-	3980000, 4000000, 4020000, 4040000,
-	4060000, 4080000, 4100000, 4120000,
-	4140000, 4160000, 4180000, 4200000,
-	4220000, 4240000, 4260000, 4280000,
-	4300000, 4320000, 4340000, 4360000,
-	4380000, 4400000, 4420000, 4440000
+#define ETA6937_DEVICE_ID_MASK		0xf8
+#define ETA6937_DEVICE_ID		0x50
+
+#define ETA6937_SAFETY_VALUE		0x8a
+
+#define ETA6937_DEFAULT_CV_UV		4400000U
+#define ETA6937_DEFAULT_ICHG_UA		2000000U
+#define ETA6937_DEFAULT_IINLIM_UA	800000U
+
+#define ETA6937_MIN_ICHG_UA		550000U
+#define ETA6937_MAX_ICHG_UA		3050000U
+#define ETA6937_ICHG_STEP_UA		100000U
+
+#define ETA6937_MIN_CV_UV		3500000U
+#define ETA6937_MAX_CV_UV		4440000U
+#define ETA6937_CV_STEP_UV		20000U
+
+#define ETA6937_DUMP_LAST_REG		0x0b
+
+static const u32 eta6937_iinlim1_ua[] = {
+	100000,
+	500000,
+	800000,
 };
 
-const unsigned int CSTH[] = {
-	550000, 650000, 750000, 850000,
-	950000, 1050000, 1150000, 1250000
-};
-
-/*hl7005 REG00 IINLIM[5:0]*/
-const unsigned int INPUT_CSTH[] = {
-	100000, 500000, 800000, 5000000
-};
-
-/* hl7005 REG0A BOOST_LIM[2:0], mA */
-const unsigned int BOOST_CURRENT_LIMIT[] = {
-	500, 750, 1200, 1400, 1650, 1875, 2150,
+static const u32 eta6937_iinlim2_ua[] = {
+	300000,
+	500000,
+	800000,
+	1200000,
+	1500000,
+	2000000,
+	3000000,
+	5000000,
 };
 
 struct hl7005_info {
 	struct charger_device *chg_dev;
 	struct charger_properties chg_props;
 	struct device *dev;
-	struct alarm otg_kthread_gtimer;
-	struct workqueue_struct *otg_boost_workq;
-	struct work_struct kick_work;
+
+	struct alarm otg_timer;
+	struct work_struct otg_kick_work;
 	unsigned int polling_interval;
 	bool polling_enabled;
+	bool charge_enabled;
 
 	const char *chg_dev_name;
-	const char *eint_name;
-	enum charger_type chg_type;
-	int irq;
+	int cd_gpio;
 };
 
 static struct hl7005_info *g_info;
 static struct i2c_client *new_client;
-static const struct i2c_device_id hl7005_i2c_id[] = { {"hl7005", 0}, {} };
 
-static void enable_boost_polling(bool poll_en);
-static void usbotg_boost_kick_work(struct work_struct *work);
-static enum alarmtimer_restart usbotg_gtimer_func(struct alarm *alarm,
-						 ktime_t now);
+static DEFINE_MUTEX(hl7005_i2c_access);
+static DEFINE_MUTEX(hl7005_probe_lock);
 
-unsigned int charging_value_to_parameter(const unsigned int *parameter,
-					const unsigned int array_size,
-					const unsigned int val)
+static void enable_boost_polling(bool enable);
+
+static int hl7005_read_byte(u8 reg, u8 *val)
 {
-	if (val < array_size)
-		return parameter[val];
-	pr_info("Can't find the parameter\n");
-	return parameter[0];
+	int ret;
+
+	if (!new_client)
+		return -ENODEV;
+
+	ret = i2c_smbus_read_byte_data(new_client, reg);
+	if (ret < 0)
+		return ret;
+
+	*val = (u8)ret;
+	return 0;
 }
 
-unsigned int charging_parameter_to_value(const unsigned int *parameter,
-					const unsigned int array_size,
-					const unsigned int val)
+/*
+ * This function writes exactly one register byte.
+ *
+ * The old port allocated wr_len bytes and then copied wr_len bytes after
+ * the register-address byte, overflowing the allocation by one byte.
+ */
+static int hl7005_write_byte(u8 reg, u8 val)
 {
-	unsigned int i;
+	if (!new_client)
+		return -ENODEV;
 
-	pr_debug_ratelimited("array_size = %d\n", array_size);
+	return i2c_smbus_write_byte_data(new_client, reg, val);
+}
 
-	for (i = 0; i < array_size; i++) {
-		if (val == *(parameter + i))
-			return i;
+static int hl7005_update_bits(u8 reg, u8 mask, u8 value)
+{
+	u8 old_value;
+	u8 new_value;
+	int ret;
+
+	mutex_lock(&hl7005_i2c_access);
+
+	ret = hl7005_read_byte(reg, &old_value);
+	if (ret < 0)
+		goto out;
+
+	new_value = (old_value & ~mask) | (value & mask);
+
+	/*
+	 * REG01[7:6] = 3 disables input-current regulation, so never write
+	 * that encoding even while modifying an unrelated REG01 field.
+	 */
+	if (reg == HL7005_CON1 &&
+	    (new_value & (CON1_LIN_LIMIT_MASK << CON1_LIN_LIMIT_SHIFT)) ==
+	    (CON1_LIN_LIMIT_MASK << CON1_LIN_LIMIT_SHIFT)) {
+		new_value &= ~(CON1_LIN_LIMIT_MASK <<
+			       CON1_LIN_LIMIT_SHIFT);
+		new_value |= 2U << CON1_LIN_LIMIT_SHIFT;
 	}
 
-	pr_info("NO register value match\n");
+	/* Never accidentally assert the write-only charger-reset bit. */
+	if (reg == HL7005_CON4)
+		new_value &= ~BIT(CON4_RESET_SHIFT);
+
+	if (new_value != old_value)
+		ret = hl7005_write_byte(reg, new_value);
+	else
+		ret = 0;
+
+out:
+	mutex_unlock(&hl7005_i2c_access);
+	return ret;
+}
+
+static int eta6937_read_identity(u8 *identity)
+{
+	int ret;
+
+	mutex_lock(&hl7005_i2c_access);
+	ret = hl7005_read_byte(HL7005_CON3, identity);
+	mutex_unlock(&hl7005_i2c_access);
+
+	return ret;
+}
+
+static int eta6937_program_safety_register(struct device *dev)
+{
+	u8 value;
+	int ret;
+
+	/*
+	 * REG06 is write-once after reset and must be the first register write.
+	 *
+	 * IMCHG[3:0] = 1000b:
+	 *   550mA + (8 * 200mA) = 2150mA, safely above the 2A policy.
+	 *
+	 * VMREG[3:0] = 1010b:
+	 *   4.20V + (10 * 20mV) = 4.40V.
+	 *
+	 * Therefore REG06 = (0x8 << 4) | 0xA = 0x8A.
+	 */
+	mutex_lock(&hl7005_i2c_access);
+
+	ret = hl7005_write_byte(HL7005_CON6, ETA6937_SAFETY_VALUE);
+	if (ret < 0)
+		goto out;
+
+	ret = hl7005_read_byte(HL7005_CON6, &value);
+
+out:
+	mutex_unlock(&hl7005_i2c_access);
+
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * A bootloader may already have consumed the write-once register, so
+	 * accept another latched value only if it cannot clamp 2A or 4.4V.
+	 */
+	if ((value >> 4) < 8 || (value & 0x0f) < 0x0a) {
+		dev_err(dev,
+			"unsafe locked safety register: REG06=0x%02x\n",
+			value);
+		return -EPERM;
+	}
+
+	if (value != ETA6937_SAFETY_VALUE)
+		dev_warn(dev,
+			 "REG06 already latched at safe value 0x%02x\n",
+			 value);
 
 	return 0;
 }
 
-static unsigned int bmt_find_closest_level(const unsigned int *pList,
-					  unsigned int number,
-					  unsigned int level)
+static int eta6937_set_cv_uv(u32 cv_uv)
 {
-	unsigned int i;
-	unsigned int max_value_in_last_element;
+	u8 code;
 
-	if (pList[0] < pList[1])
-		max_value_in_last_element = 1;
+	if (cv_uv < ETA6937_MIN_CV_UV)
+		cv_uv = ETA6937_MIN_CV_UV;
+	else if (cv_uv > ETA6937_MAX_CV_UV)
+		cv_uv = ETA6937_MAX_CV_UV;
+
+	/* Round downward so the programmed CV never exceeds the request. */
+	code = (cv_uv - ETA6937_MIN_CV_UV) / ETA6937_CV_STEP_UV;
+
+	return hl7005_update_bits(
+		HL7005_CON2,
+		CON2_OREG_MASK << CON2_OREG_SHIFT,
+		code << CON2_OREG_SHIFT);
+}
+
+static u32 eta6937_decode_ichg_ua(u8 reg4, u8 reg5)
+{
+	u8 code;
+	u32 current_ua;
+
+	if (reg5 & BIT(CON5_LOW_CHG_SHIFT))
+		return ETA6937_MIN_ICHG_UA;
+
+	code = (((reg5 >> CON5_I_CHR_HI_SHIFT) &
+		 CON5_I_CHR_HI_MASK) << 3) |
+	       ((reg4 >> CON4_I_CHR_SHIFT) & CON4_I_CHR_MASK);
+
+	/*
+	 * Codes 0..24 increase by 100mA from 550mA, while codes 25..31
+	 * saturate at 3050mA before applying ICHRG_OFFSET.
+	 */
+	if (code >= 25)
+		current_ua = ETA6937_MAX_ICHG_UA;
 	else
-		max_value_in_last_element = 0;
+		current_ua = ETA6937_MIN_ICHG_UA +
+			     code * ETA6937_ICHG_STEP_UA;
 
-	if (max_value_in_last_element == 1) {
-		for (i = (number - 1); i != 0; i--) {
-			if (pList[i] <= level) {
-				pr_debug_ratelimited("zzf_%d<=%d, i=%d\n",
-						    pList[i], level, i);
-				return pList[i];
+	if (reg4 & BIT(CON4_I_CHR_OFFSET_SHIFT))
+		current_ua += ETA6937_ICHG_STEP_UA;
+
+	return current_ua;
+}
+
+static int eta6937_get_charge_current_ua(u32 *current_ua)
+{
+	u8 reg4;
+	u8 reg5;
+	int ret;
+
+	mutex_lock(&hl7005_i2c_access);
+
+	ret = hl7005_read_byte(HL7005_CON5, &reg5);
+	if (ret < 0)
+		goto out;
+
+	ret = hl7005_read_byte(HL7005_CON4, &reg4);
+	if (ret < 0)
+		goto out;
+
+	*current_ua = eta6937_decode_ichg_ua(reg4, reg5);
+
+out:
+	mutex_unlock(&hl7005_i2c_access);
+	return ret;
+}
+
+static int eta6937_set_charge_current_ua(u32 requested_ua)
+{
+	u8 reg4;
+	u8 reg5;
+	u8 safe_reg5;
+	u8 new_reg4;
+	u8 new_reg5;
+	u8 code;
+	int ret;
+
+	if (requested_ua <= ETA6937_MIN_ICHG_UA) {
+		code = 0;
+	} else if (requested_ua >= ETA6937_MAX_ICHG_UA) {
+		code = 25;
+	} else {
+		/*
+		 * Round downward because ETA6937 has no exact 2.000A code:
+		 * 2.000A therefore becomes code 14, which is 1.950A.
+		 */
+		code = (requested_ua - ETA6937_MIN_ICHG_UA) /
+		       ETA6937_ICHG_STEP_UA;
+	}
+
+	mutex_lock(&hl7005_i2c_access);
+
+	ret = hl7005_read_byte(HL7005_CON5, &reg5);
+	if (ret < 0)
+		goto out;
+
+	ret = hl7005_read_byte(HL7005_CON4, &reg4);
+	if (ret < 0)
+		goto out;
+
+	/*
+	 * Temporarily force 550mA while changing the split current code so
+	 * no intermediate REG04/REG05 combination can create an overcurrent.
+	 */
+	safe_reg5 = reg5 | BIT(CON5_LOW_CHG_SHIFT);
+
+	if (safe_reg5 != reg5) {
+		ret = hl7005_write_byte(HL7005_CON5, safe_reg5);
+		if (ret < 0)
+			goto out;
+	}
+
+	/*
+	 * Preserve ITERM[2:0], clear RESET, select offset zero, and replace
+	 * only ICHG[2:0].
+	 */
+	new_reg4 = reg4 & ((CON4_I_TERM_MASK << CON4_I_TERM_SHIFT));
+	new_reg4 |= (code & CON4_I_CHR_MASK) << CON4_I_CHR_SHIFT;
+
+	ret = hl7005_write_byte(HL7005_CON4, new_reg4);
+	if (ret < 0)
+		goto out;
+
+	/*
+	 * Preserve DPM, CD status, and VINDPM fields while replacing only
+	 * ICHG[4:3] and clearing LOW_CHG.
+	 */
+	new_reg5 = reg5;
+	new_reg5 &= ~((CON5_I_CHR_HI_MASK << CON5_I_CHR_HI_SHIFT) |
+		      BIT(CON5_LOW_CHG_SHIFT));
+	new_reg5 |= ((code >> 3) & CON5_I_CHR_HI_MASK) <<
+		    CON5_I_CHR_HI_SHIFT;
+
+	ret = hl7005_write_byte(HL7005_CON5, new_reg5);
+
+out:
+	mutex_unlock(&hl7005_i2c_access);
+	return ret;
+}
+
+static int eta6937_get_input_current_ua(u32 *current_ua)
+{
+	u8 reg1;
+	u8 reg7;
+	u8 code;
+	int ret;
+
+	mutex_lock(&hl7005_i2c_access);
+
+	ret = hl7005_read_byte(HL7005_CON7, &reg7);
+	if (ret < 0)
+		goto out;
+
+	if (reg7 & BIT(CON7_EN_ILIM2_SHIFT)) {
+		code = (reg7 >> CON7_IIN_LIMIT2_SHIFT) &
+		       CON7_IIN_LIMIT2_MASK;
+		*current_ua = eta6937_iinlim2_ua[code];
+		goto out;
+	}
+
+	ret = hl7005_read_byte(HL7005_CON1, &reg1);
+	if (ret < 0)
+		goto out;
+
+	code = (reg1 >> CON1_LIN_LIMIT_SHIFT) & CON1_LIN_LIMIT_MASK;
+
+	if (code == 3) {
+		*current_ua = 0;
+		ret = -ERANGE;
+		goto out;
+	}
+
+	*current_ua = eta6937_iinlim1_ua[code];
+
+out:
+	mutex_unlock(&hl7005_i2c_access);
+	return ret;
+}
+
+static int eta6937_set_input_current_ua(u32 requested_ua)
+{
+	u8 reg1;
+	u8 reg7;
+	u8 new_reg1;
+	u8 new_reg7;
+	u8 code;
+	int i;
+	int ret;
+
+	mutex_lock(&hl7005_i2c_access);
+
+	if (requested_ua >= 1200000) {
+		code = 3;
+
+		for (i = ARRAY_SIZE(eta6937_iinlim2_ua) - 1;
+		     i >= 3; i--) {
+			if (eta6937_iinlim2_ua[i] <= requested_ua) {
+				code = i;
+				break;
 			}
 		}
-		pr_info("Can't find closest level\n");
-		return pList[0];
-		/* return 000; */
-	} else {
-		for (i = 0; i < number; i++) {
-			if (pList[i] <= level)
-				return pList[i];
-		}
-		pr_info("Can't find closest level\n");
-		return pList[number - 1];
-		/* return 000; */
+
+		ret = hl7005_read_byte(HL7005_CON7, &reg7);
+		if (ret < 0)
+			goto out;
+
+		/*
+		 * Preserve VINDPM[6:3] and replace only EN_ILIM2 plus
+		 * IIN_LIMIT_2[2:0].
+		 */
+		new_reg7 = reg7 &
+			(CON7_VINDPM_HI_MASK << CON7_VINDPM_HI_SHIFT);
+		new_reg7 |= BIT(CON7_EN_ILIM2_SHIFT);
+		new_reg7 |= code << CON7_IIN_LIMIT2_SHIFT;
+
+		if (new_reg7 != reg7)
+			ret = hl7005_write_byte(HL7005_CON7, new_reg7);
+		else
+			ret = 0;
+
+		goto out;
 	}
-}
 
-unsigned char hl7005_reg[HL7005_REG_NUM] = { 0 };
-static DEFINE_MUTEX(hl7005_i2c_access);
-static DEFINE_MUTEX(hl7005_access_lock);
+	if (requested_ua >= 800000)
+		code = 2;
+	else if (requested_ua >= 500000)
+		code = 1;
+	else
+		code = 0;
 
-static int hl7005_read_byte(u8 reg_addr, u8 *rd_buf, int rd_len)
-{
-	int ret = 0;
-	struct i2c_adapter *adap = new_client->adapter;
-	struct i2c_msg msg[2];
-	u8 *w_buf = NULL;
-	u8 *r_buf = NULL;
+	ret = hl7005_read_byte(HL7005_CON1, &reg1);
+	if (ret < 0)
+		goto out;
 
-	memset(msg, 0, 2 * sizeof(struct i2c_msg));
+	ret = hl7005_read_byte(HL7005_CON7, &reg7);
+	if (ret < 0)
+		goto out;
 
-	w_buf = kzalloc(1, GFP_KERNEL);
-	if (w_buf == NULL)
-		return -1;
-	r_buf = kzalloc(rd_len, GFP_KERNEL);
-	if (r_buf == NULL)
-		return -1;
+	/*
+	 * Program a regulated REG01 value before selecting it; code 3 is
+	 * never emitted.
+	 */
+	new_reg1 = reg1 &
+		~(CON1_LIN_LIMIT_MASK << CON1_LIN_LIMIT_SHIFT);
+	new_reg1 |= code << CON1_LIN_LIMIT_SHIFT;
 
-	*w_buf = reg_addr;
+	if (new_reg1 != reg1) {
+		ret = hl7005_write_byte(HL7005_CON1, new_reg1);
+		if (ret < 0)
+			goto out;
+	}
 
-	msg[0].addr = new_client->addr;
-	msg[0].flags = 0;
-	msg[0].len = 1;
-	msg[0].buf = w_buf;
+	/* Preserve every VINDPM field while selecting REG01. */
+	new_reg7 = reg7 & ~BIT(CON7_EN_ILIM2_SHIFT);
 
-	msg[1].addr = new_client->addr;
-	msg[1].flags = 1;
-	msg[1].len = rd_len;
-	msg[1].buf = r_buf;
+	if (new_reg7 != reg7)
+		ret = hl7005_write_byte(HL7005_CON7, new_reg7);
+	else
+		ret = 0;
 
-	ret = i2c_transfer(adap, msg, 2);
-
-	memcpy(rd_buf, r_buf, rd_len);
-
-	kfree(w_buf);
-	kfree(r_buf);
+out:
+	mutex_unlock(&hl7005_i2c_access);
 	return ret;
 }
 
-int hl7005_write_byte(unsigned char reg_num, u8 *wr_buf, int wr_len)
+static int eta6937_kick_watchdog(void)
 {
-	int ret = 0;
-	struct i2c_adapter *adap = new_client->adapter;
-	struct i2c_msg msg;
-	u8 *w_buf = NULL;
+	u8 value;
+	int ret;
 
-	memset(&msg, 0, sizeof(struct i2c_msg));
+	mutex_lock(&hl7005_i2c_access);
 
-	w_buf = kzalloc(wr_len, GFP_KERNEL);
-	if (w_buf == NULL)
-		return -1;
+	ret = hl7005_read_byte(HL7005_CON0, &value);
+	if (ret < 0)
+		goto out;
 
-	w_buf[0] = reg_num;
-	memcpy(w_buf + 1, wr_buf, wr_len);
+	/*
+	 * REG00 bit 7 reads OTG_STAT but writes TMR_RST, so always perform
+	 * the write even if the read value already contains bit 7.
+	 */
+	ret = hl7005_write_byte(HL7005_CON0,
+			       value | BIT(CON0_TMR_RST_SHIFT));
 
-	msg.addr = new_client->addr;
-	msg.flags = 0;
-	msg.len = wr_len;
-	msg.buf = w_buf;
-
-	ret = i2c_transfer(adap, &msg, 1);
-
-	kfree(w_buf);
+out:
+	mutex_unlock(&hl7005_i2c_access);
 	return ret;
 }
 
-unsigned int hl7005_read_interface(unsigned char reg_num, unsigned char *val,
-				  unsigned char MASK, unsigned char SHIFT)
+static int eta6937_hw_init(struct hl7005_info *info)
 {
-	unsigned char hl7005_reg = 0;
-	unsigned int ret = 0;
+	u8 control_mask;
+	u8 control_value;
+	int ret;
 
-	ret = hl7005_read_byte(reg_num, &hl7005_reg, 1);
-	pr_debug_ratelimited("hl7005 Reg[%x] = 0x%x\n", reg_num, hl7005_reg);
-	hl7005_reg &= (MASK << SHIFT);
-	*val = (hl7005_reg >> SHIFT);
-	pr_debug_ratelimited("hl7005 val = 0x%x\n", *val);
+	/* This must remain the first register write after identity checking. */
+	ret = eta6937_program_safety_register(info->dev);
+	if (ret < 0)
+		return ret;
 
-	return ret;
-}
+	ret = eta6937_set_cv_uv(ETA6937_DEFAULT_CV_UV);
+	if (ret < 0)
+		return ret;
 
-unsigned int hl7005_config_interface(unsigned char reg_num, unsigned char val,
-				     unsigned char MASK, unsigned char SHIFT)
-{
-	unsigned char hl7005_reg = 0;
-	unsigned char hl7005_reg_ori = 0;
-	unsigned int ret = 0;
+	ret = eta6937_set_charge_current_ua(ETA6937_DEFAULT_ICHG_UA);
+	if (ret < 0)
+		return ret;
 
-	mutex_lock(&hl7005_access_lock);
-	ret = hl7005_read_byte(reg_num, &hl7005_reg, 1);
-	hl7005_reg_ori = hl7005_reg;
-	hl7005_reg &= ~(MASK << SHIFT);
-	hl7005_reg |= (val << SHIFT);
-	if (reg_num == HL7005_CON4)
-		hl7005_reg &= ~(1 << CON4_RESET_SHIFT);
+	ret = eta6937_set_input_current_ua(ETA6937_DEFAULT_IINLIM_UA);
+	if (ret < 0)
+		return ret;
 
-	ret = hl7005_write_byte(reg_num, &hl7005_reg, 2);
-	mutex_unlock(&hl7005_access_lock);
-	pr_debug_ratelimited("hl7005 write Reg[%x]=0x%x from 0x%x\n", reg_num,
-			hl7005_reg, hl7005_reg_ori);
+	control_mask = BIT(CON1_TE_SHIFT) |
+		       BIT(CON1_CE_SHIFT) |
+		       BIT(CON1_HZ_MODE_SHIFT) |
+		       BIT(CON1_OPA_MODE_SHIFT);
+	control_value = BIT(CON1_TE_SHIFT);
 
-	return ret;
-}
+	ret = hl7005_update_bits(HL7005_CON1,
+				 control_mask, control_value);
+	if (ret < 0)
+		return ret;
 
-/* write one register directly */
-unsigned int hl7005_reg_config_interface(unsigned char reg_num,
-					unsigned char val)
-{
-	unsigned char hl7005_reg = val;
-
-	return hl7005_write_byte(reg_num, &hl7005_reg, 2);
-}
-
-void hl7005_set_tmr_rst(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON0),
-				(unsigned char)(val),
-				(unsigned char)(CON0_TMR_RST_MASK),
-				(unsigned char)(CON0_TMR_RST_SHIFT)
-				);
-}
-
-unsigned int hl7005_get_otg_status(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON0),
-				(unsigned char *)(&val),
-				(unsigned char)(CON0_OTG_MASK),
-				(unsigned char)(CON0_OTG_SHIFT)
-				);
-	return val;
-}
-
-void hl7005_set_en_stat(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON0),
-				(unsigned char)(val),
-				(unsigned char)(CON0_EN_STAT_MASK),
-				(unsigned char)(CON0_EN_STAT_SHIFT)
-				);
-}
-
-unsigned int hl7005_get_chip_status(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON0),
-				(unsigned char *)(&val),
-				(unsigned char)(CON0_STAT_MASK),
-				(unsigned char)(CON0_STAT_SHIFT)
-				);
-	return val;
-}
-
-unsigned int hl7005_get_boost_status(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON0),
-				(unsigned char *)(&val),
-				(unsigned char)(CON0_BOOST_MASK),
-				(unsigned char)(CON0_BOOST_SHIFT)
-				);
-	return val;
-
-}
-
-unsigned int hl7005_get_fault_status(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON0),
-				(unsigned char *)(&val),
-				(unsigned char)(CON0_FAULT_MASK),
-				(unsigned char)(CON0_FAULT_SHIFT)
-				);
-	return val;
-}
-
-void hl7005_set_input_charging_current(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON1),
-				(unsigned char)(val),
-				(unsigned char)(CON1_LIN_LIMIT_MASK),
-				(unsigned char)(CON1_LIN_LIMIT_SHIFT)
-				);
-}
-
-unsigned int hl7005_get_input_charging_current(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON1),
-				(unsigned char *)(&val),
-				(unsigned char)(CON1_LIN_LIMIT_MASK),
-				(unsigned char)(CON1_LIN_LIMIT_SHIFT)
-				);
-
-	return val;
-}
-
-void hl7005_set_v_low(unsigned int val)
-{
-
-	hl7005_config_interface((unsigned char)(HL7005_CON1),
-				(unsigned char)(val),
-				(unsigned char)(CON1_LOW_V_MASK),
-				(unsigned char)(CON1_LOW_V_SHIFT)
-				);
-}
-
-void hl7005_set_te(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON1),
-				(unsigned char)(val),
-				(unsigned char)(CON1_TE_MASK),
-				(unsigned char)(CON1_TE_SHIFT)
-				);
-}
-
-void hl7005_set_ce(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON1),
-				(unsigned char)(val),
-				(unsigned char)(CON1_CE_MASK),
-				(unsigned char)(CON1_CE_SHIFT)
-				);
-}
-
-void hl7005_set_hz_mode(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON1),
-				(unsigned char)(val),
-				(unsigned char)(CON1_HZ_MODE_MASK),
-				(unsigned char)(CON1_HZ_MODE_SHIFT)
-				);
-}
-
-void hl7005_set_opa_mode(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON1),
-				(unsigned char)(val),
-				(unsigned char)(CON1_OPA_MODE_MASK),
-				(unsigned char)(CON1_OPA_MODE_SHIFT)
-				);
-}
-
-void hl7005_set_oreg(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON2),
-				(unsigned char)(val),
-				(unsigned char)(CON2_OREG_MASK),
-				(unsigned char)(CON2_OREG_SHIFT)
-				);
-}
-void hl7005_set_otg_pl(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON2),
-				(unsigned char)(val),
-				(unsigned char)(CON2_OTG_PL_MASK),
-				(unsigned char)(CON2_OTG_PL_SHIFT)
-				);
-}
-void hl7005_set_otg_en(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON2),
-				(unsigned char)(val),
-				(unsigned char)(CON2_OTG_EN_MASK),
-				(unsigned char)(CON2_OTG_EN_SHIFT)
-				);
-}
-
-unsigned int hl7005_get_vender_code(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON3),
-				(unsigned char *)(&val),
-				(unsigned char)(CON3_VENDER_CODE_MASK),
-				(unsigned char)(CON3_VENDER_CODE_SHIFT)
-				);
-	return val;
-}
-
-unsigned int hl7005_get_pn(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON3),
-				(unsigned char *)(&val),
-				(unsigned char)(CON3_PIN_MASK),
-				(unsigned char)(CON3_PIN_SHIFT)
-				);
-	return val;
-}
-
-unsigned int hl7005_get_revision(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON3),
-				(unsigned char *)(&val),
-				(unsigned char)(CON3_REVISION_MASK),
-				(unsigned char)(CON3_REVISION_SHIFT)
-				);
-	return val;
-}
-
-void hl7005_set_reset(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON4),
-				(unsigned char)(val),
-				(unsigned char)(CON4_RESET_MASK),
-				(unsigned char)(CON4_RESET_SHIFT)
-				);
-}
-
-void hl7005_set_iocharge(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON4),
-				(unsigned char)(val),
-				(unsigned char)(CON4_I_CHR_MASK),
-				(unsigned char)(CON4_I_CHR_SHIFT)
-				);
-}
-
-void hl7005_set_iterm(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON4),
-				(unsigned char)(val),
-				(unsigned char)(CON4_I_TERM_MASK),
-				(unsigned char)(CON4_I_TERM_SHIFT)
-				);
-}
-
-void hl7005_set_dis_vreg(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON5),
-				(unsigned char)(val),
-				(unsigned char)(CON5_DIS_VREG_MASK),
-				(unsigned char)(CON5_DIS_VREG_SHIFT)
-				);
-}
-
-void hl7005_set_io_level(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON5),
-				(unsigned char)(val),
-				(unsigned char)(CON5_IO_LEVEL_MASK),
-				(unsigned char)(CON5_IO_LEVEL_SHIFT)
-				);
-}
-
-unsigned int hl7005_get_sp_status(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON5),
-				(unsigned char *)(&val),
-				(unsigned char)(CON5_SP_STATUS_MASK),
-				(unsigned char)(CON5_SP_STATUS_SHIFT)
-				);
-	return val;
-}
-
-unsigned int hl7005_get_en_level(void)
-{
-	unsigned char val = 0;
-
-	hl7005_read_interface((unsigned char)(HL7005_CON5),
-				(unsigned char *)(&val),
-				(unsigned char)(CON5_EN_LEVEL_MASK),
-				(unsigned char)(CON5_EN_LEVEL_SHIFT)
-				);
-	return val;
-}
-
-void hl7005_set_vsp(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON5),
-				(unsigned char)(val),
-				(unsigned char)(CON5_VSP_MASK),
-				(unsigned char)(CON5_VSP_SHIFT)
-				);
-}
-
-void hl7005_set_i_safe(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON6),
-				(unsigned char)(val),
-				(unsigned char)(CON6_ISAFE_MASK),
-				(unsigned char)(CON6_ISAFE_SHIFT)
-				);
-}
-
-void hl7005_set_v_safe(unsigned int val)
-{
-	hl7005_config_interface((unsigned char)(HL7005_CON6),
-				(unsigned char)(val),
-				(unsigned char)(CON6_VSAFE_MASK),
-				(unsigned char)(CON6_VSAFE_SHIFT)
-				);
+	return eta6937_kick_watchdog();
 }
 
 static int hl7005_dump_register(struct charger_device *chg_dev)
 {
-	int i;
+	struct hl7005_info *info = g_info;
+	int first_error = 0;
+	int ret;
+	int reg;
+	u8 value;
 
-	for (i = 0; i < HL7005_REG_NUM; i++) {
-		hl7005_read_byte(i, &hl7005_reg[i], 1);
-		pr_debug("[0x%x]=0x%x ", i, hl7005_reg[i]);
+	if (!info)
+		return -ENODEV;
+
+	mutex_lock(&hl7005_i2c_access);
+
+	for (reg = 0; reg <= ETA6937_DUMP_LAST_REG; reg++) {
+		ret = hl7005_read_byte((u8)reg, &value);
+		if (ret < 0) {
+			dev_info(info->dev,
+				 "REG[0x%02x] read error: %d\n",
+				 reg, ret);
+			if (!first_error)
+				first_error = ret;
+			continue;
+		}
+
+		dev_info(info->dev, "REG[0x%02x] = 0x%02x\n",
+			 reg, value);
 	}
-	pr_debug("\n");
 
-	return 0;
+	mutex_unlock(&hl7005_i2c_access);
+	return first_error;
 }
 
-static int hl7005_parse_dt(struct hl7005_info *info, struct device *dev)
+static int hl7005_parse_dt(struct hl7005_info *info)
 {
-	struct device_node *np = dev->of_node;
+	struct device_node *np = info->dev->of_node;
+	int gpio;
 
-	pr_info("%s\n", __func__);
-
-	if (!np) {
-		pr_err("%s: no of node\n", __func__);
+	if (!np)
 		return -ENODEV;
-	}
 
-	if (of_property_read_string(np, "charger_name",
-	   &info->chg_dev_name) < 0) {
-		info->chg_dev_name = "primary_chg";
-		pr_warn("%s: no charger name\n", __func__);
-	}
+	/*
+	 * mtk_charger resolves this exact global name, so it is intentionally
+	 * not configurable.
+	 */
+	info->chg_dev_name = "primary_chg";
 
 	if (of_property_read_string(np, "alias_name",
-	   &(info->chg_props.alias_name)) < 0) {
-		info->chg_props.alias_name = "hl7005";
-		pr_warn("%s: no alias name\n", __func__);
+				    &info->chg_props.alias_name))
+		info->chg_props.alias_name = "eta6937";
+
+	gpio = of_get_named_gpio(np, "hl7005,cd_pin", 0);
+	if (gpio == -EPROBE_DEFER)
+		return gpio;
+
+	if (!gpio_is_valid(gpio)) {
+		dev_err(info->dev,
+			"missing or invalid hl7005,cd_pin: %d\n", gpio);
+		return gpio < 0 ? gpio : -EINVAL;
 	}
 
+	info->cd_gpio = gpio;
 	return 0;
 }
 
-static int hl7005_do_event(struct charger_device *chg_dev, unsigned int event,
-			   unsigned int args)
+static int hl7005_do_event(struct charger_device *chg_dev,
+			   unsigned int event, unsigned int args)
 {
-	if (chg_dev == NULL)
+	if (!chg_dev)
 		return -EINVAL;
-
-	pr_info("%s: event = %d\n", __func__, event);
 
 	switch (event) {
 	case EVENT_FULL:
@@ -634,311 +626,394 @@ static int hl7005_do_event(struct charger_device *chg_dev, unsigned int event,
 	return 0;
 }
 
-static int hl7005_enable_charging(struct charger_device *chg_dev, bool en)
+static int hl7005_enable_charging(struct charger_device *chg_dev, bool enable)
 {
-	unsigned int status = 0;
+	struct hl7005_info *info = g_info;
+	u8 mask;
+	int ret;
 
-	if (en) {
-		hl7005_set_ce(0);
-		hl7005_set_hz_mode(0);
-		hl7005_set_opa_mode(0);
-	} else {
-		hl7005_set_ce(1);
+	if (!info)
+		return -ENODEV;
+
+	if (!enable) {
+		/*
+		 * CD is active-high: assert the physical disable first so a
+		 * failed I2C transaction still leaves charging disabled.
+		 */
+		gpio_set_value_cansleep(info->cd_gpio, 1);
+		info->charge_enabled = false;
+
+		return hl7005_update_bits(HL7005_CON1,
+					  BIT(CON1_CE_SHIFT),
+					  BIT(CON1_CE_SHIFT));
 	}
 
-	return status;
+	mask = BIT(CON1_CE_SHIFT) |
+	       BIT(CON1_HZ_MODE_SHIFT) |
+	       BIT(CON1_OPA_MODE_SHIFT);
+
+	ret = hl7005_update_bits(HL7005_CON1, mask, 0);
+	if (ret < 0)
+		return ret;
+
+	/* CD=0 enables the physical charging path. */
+	gpio_set_value_cansleep(info->cd_gpio, 0);
+	info->charge_enabled = true;
+
+	return 0;
 }
 
-static int hl7005_set_cv_voltage(struct charger_device *chg_dev, u32 cv)
+static int hl7005_set_cv_voltage(struct charger_device *chg_dev, u32 cv_uv)
 {
-	int status = 0;
-	unsigned short int array_size;
-	unsigned int set_cv_voltage;
-	unsigned short int register_value;
-	/*static kal_int16 pre_register_value; */
-	array_size = ARRAY_SIZE(VBAT_CVTH);
-	/*pre_register_value = -1; */
-	set_cv_voltage = bmt_find_closest_level(VBAT_CVTH, array_size, cv);
-
-	register_value =
-	charging_parameter_to_value(VBAT_CVTH, array_size, set_cv_voltage);
-	pr_info("charging_set_cv_voltage register_value=0x%x %d %d\n",
-	 register_value, cv, set_cv_voltage);
-	hl7005_set_oreg(register_value);
-
-	return status;
+	return eta6937_set_cv_uv(cv_uv);
 }
 
-static int hl7005_get_current(struct charger_device *chg_dev, u32 *ichg)
+static int hl7005_get_current(struct charger_device *chg_dev, u32 *ichg_ua)
 {
-	int status = 0;
-	unsigned int array_size;
-	unsigned char reg_value;
+	if (!ichg_ua)
+		return -EINVAL;
 
-	array_size = ARRAY_SIZE(CSTH);
-	hl7005_read_interface(0x1, &reg_value, 0x3, 0x6);
-	*ichg = charging_value_to_parameter(CSTH, array_size, reg_value);
-
-	return status;
+	return eta6937_get_charge_current_ua(ichg_ua);
 }
 
-static int hl7005_set_current(struct charger_device *chg_dev, u32 current_value)
+static int hl7005_set_current(struct charger_device *chg_dev, u32 ichg_ua)
 {
-	unsigned int status = 0;
-	unsigned int set_chr_current;
-	unsigned int array_size;
-	unsigned int register_value;
-
-	if (current_value <= 35000) {
-		hl7005_set_io_level(1);
-	} else {
-		hl7005_set_io_level(0);
-		array_size = ARRAY_SIZE(CSTH);
-		set_chr_current = bmt_find_closest_level(CSTH,
-				array_size, current_value);
-		register_value = charging_parameter_to_value(CSTH, array_size,
-				set_chr_current);
-		hl7005_set_iocharge(register_value);
-	}
-
-	return status;
+	return eta6937_set_charge_current_ua(ichg_ua);
 }
 
-static int hl7005_get_input_current(struct charger_device *chg_dev, u32 *aicr)
+static int hl7005_get_input_current(struct charger_device *chg_dev,
+				    u32 *aicr_ua)
 {
-	unsigned int status = 0;
-	unsigned int array_size;
-	unsigned int register_value;
+	if (!aicr_ua)
+		return -EINVAL;
 
-	array_size = ARRAY_SIZE(INPUT_CSTH);
-	register_value = hl7005_get_input_charging_current();
-	*aicr = charging_parameter_to_value(INPUT_CSTH, array_size,
-					   register_value);
-
-	return status;
+	return eta6937_get_input_current_ua(aicr_ua);
 }
 
 static int hl7005_set_input_current(struct charger_device *chg_dev,
-				    u32 current_value)
+				    u32 aicr_ua)
 {
-	unsigned int status = 0;
-	unsigned int set_chr_current;
-	unsigned int array_size;
-	unsigned int register_value;
-
-	if (current_value > 50000) {
-		register_value = 0x3;
-	} else {
-		array_size = ARRAY_SIZE(INPUT_CSTH);
-		set_chr_current = bmt_find_closest_level(INPUT_CSTH, array_size,
-					current_value);
-		register_value =
-	 charging_parameter_to_value(INPUT_CSTH, array_size, set_chr_current);
-	}
-
-	hl7005_set_input_charging_current(register_value);
-
-	return status;
+	return eta6937_set_input_current_ua(aicr_ua);
 }
 
 static int hl7005_get_charging_status(struct charger_device *chg_dev,
-				bool *is_done)
+				      bool *is_done)
 {
-	unsigned int status = 0;
-	unsigned int ret_val;
+	u8 value;
+	int ret;
 
-	ret_val = hl7005_get_chip_status();
+	if (!is_done)
+		return -EINVAL;
 
-	if (ret_val == 0x2)
-		*is_done = true;
-	else
-		*is_done = false;
+	mutex_lock(&hl7005_i2c_access);
+	ret = hl7005_read_byte(HL7005_CON0, &value);
+	mutex_unlock(&hl7005_i2c_access);
 
-	return status;
+	if (ret < 0)
+		return ret;
+
+	*is_done = (((value >> CON0_STAT_SHIFT) & CON0_STAT_MASK) == 2);
+	return 0;
 }
 
 static int hl7005_reset_watch_dog_timer(struct charger_device *chg_dev)
 {
-	hl7005_set_tmr_rst(1);
-	return 0;
+	return eta6937_kick_watchdog();
 }
 
-static int hl7005_charger_enable_otg(struct charger_device *chg_dev, bool en)
+static void eta6937_start_otg_timer(struct hl7005_info *info)
 {
-	hl7005_set_opa_mode(en);
-	enable_boost_polling(en);
-	return 0;
+	struct timespec now;
+	struct timespec interval;
+	struct timespec expires;
+
+	get_monotonic_boottime(&now);
+	interval.tv_sec = info->polling_interval;
+	interval.tv_nsec = 0;
+	expires = timespec_add(now, interval);
+
+	alarm_start(&info->otg_timer,
+		    ktime_set(expires.tv_sec, expires.tv_nsec));
 }
 
-static void enable_boost_polling(bool poll_en)
+static void enable_boost_polling(bool enable)
 {
-	struct timespec time, time_now, end_time;
-	ktime_t ktime;
+	struct hl7005_info *info = g_info;
 
-	if (g_info) {
-		if (poll_en) {
-			get_monotonic_boottime(&time_now);
-			time.tv_sec = g_info->polling_interval;
-			time.tv_nsec = 0;
-			timespec_add(time_now, time);
-			ktime = ktime_set(end_time.tv_sec, end_time.tv_nsec);
-			alarm_start(&g_info->otg_kthread_gtimer, ktime);
-			g_info->polling_enabled = true;
-		} else {
-			g_info->polling_enabled = false;
-			alarm_cancel(&g_info->otg_kthread_gtimer);
-		}
+	if (!info)
+		return;
+
+	if (enable) {
+		info->polling_enabled = true;
+		eta6937_start_otg_timer(info);
+	} else {
+		info->polling_enabled = false;
+		alarm_cancel(&info->otg_timer);
 	}
 }
 
 static void usbotg_boost_kick_work(struct work_struct *work)
 {
-	ktime_t ktime;
-	struct timespec time, time_now, end_time;
-	struct hl7005_info *boost_manager =
-		container_of(work, struct hl7005_info, kick_work);
+	struct hl7005_info *info =
+		container_of(work, struct hl7005_info, otg_kick_work);
 
-	pr_debug_ratelimited("hl7005 otg detect\n");
+	eta6937_kick_watchdog();
 
-	hl7005_set_tmr_rst(1);
-
-	if (boost_manager->polling_enabled == true) {
-		get_monotonic_boottime(&time_now);
-		time.tv_sec = boost_manager->polling_interval;
-		time.tv_nsec = 0;
-		timespec_add(time_now, time);
-		ktime = ktime_set(end_time.tv_sec, end_time.tv_nsec);
-		alarm_start(&boost_manager->otg_kthread_gtimer, ktime);
-	}
+	if (info->polling_enabled)
+		eta6937_start_otg_timer(info);
 }
 
-static enum alarmtimer_restart usbotg_gtimer_func(struct alarm *alarm,
-						 ktime_t now)
+static enum alarmtimer_restart usbotg_timer_func(struct alarm *alarm,
+						  ktime_t now)
 {
-	struct hl7005_info *boost_manager =
-		container_of(alarm, struct hl7005_info,
-			     otg_kthread_gtimer);
+	struct hl7005_info *info =
+		container_of(alarm, struct hl7005_info, otg_timer);
 
-	queue_work(boost_manager->otg_boost_workq,
-		   &boost_manager->kick_work);
-
+	schedule_work(&info->otg_kick_work);
 	return ALARMTIMER_NORESTART;
 }
 
-static struct charger_ops hl7005_chg_ops = {
+static int hl7005_charger_enable_otg(struct charger_device *chg_dev,
+				     bool enable)
+{
+	struct hl7005_info *info = g_info;
+	u8 mask;
+	u8 value;
+	int ret;
 
-	/* Normal charging */
+	if (!info)
+		return -ENODEV;
+
+	mask = BIT(CON1_HZ_MODE_SHIFT) |
+	       BIT(CON1_OPA_MODE_SHIFT);
+	value = enable ? BIT(CON1_OPA_MODE_SHIFT) : 0;
+
+	ret = hl7005_update_bits(HL7005_CON1, mask, value);
+	if (ret < 0)
+		return ret;
+
+	if (enable) {
+		/* CD must be low for the chip to leave hardware disable. */
+		gpio_set_value_cansleep(info->cd_gpio, 0);
+		enable_boost_polling(true);
+	} else {
+		enable_boost_polling(false);
+		gpio_set_value_cansleep(info->cd_gpio,
+				       info->charge_enabled ? 0 : 1);
+	}
+
+	return 0;
+}
+
+static struct charger_ops hl7005_chg_ops = {
 	.dump_registers = hl7005_dump_register,
 	.enable = hl7005_enable_charging,
 	.get_charging_current = hl7005_get_current,
 	.set_charging_current = hl7005_set_current,
 	.get_input_current = hl7005_get_input_current,
 	.set_input_current = hl7005_set_input_current,
-	/*.get_constant_voltage = hl7005_get_battery_voreg,*/
 	.set_constant_voltage = hl7005_set_cv_voltage,
 	.kick_wdt = hl7005_reset_watch_dog_timer,
 	.is_charging_done = hl7005_get_charging_status,
-	/* OTG */
 	.enable_otg = hl7005_charger_enable_otg,
 	.event = hl7005_do_event,
 };
 
-static int hl7005_driver_probe(struct i2c_client *client,
-			      const struct i2c_device_id *id)
+static void hl7005_release_client(struct i2c_client *client)
 {
-	int ret = 0;
-	struct hl7005_info *info = NULL;
+	mutex_lock(&hl7005_probe_lock);
 
-	info = devm_kzalloc(&client->dev, sizeof(struct hl7005_info),
-			   GFP_KERNEL);
+	if (new_client == client)
+		new_client = NULL;
 
+	mutex_unlock(&hl7005_probe_lock);
+}
+
+static int hl7005_driver_probe(struct i2c_client *client,
+			       const struct i2c_device_id *id)
+{
+	struct hl7005_info *info;
+	u8 identity;
+	int ret;
+
+	if (!i2c_check_functionality(client->adapter,
+				     I2C_FUNC_SMBUS_BYTE_DATA))
+		return -EOPNOTSUPP;
+
+	info = devm_kzalloc(&client->dev, sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
 
-	new_client = client;
 	info->dev = &client->dev;
-	ret = hl7005_parse_dt(info, &client->dev);
 
+	ret = hl7005_parse_dt(info);
 	if (ret < 0)
 		return ret;
 
-	/* Register charger device */
-	info->chg_dev = charger_device_register(info->chg_dev_name,
-		&client->dev, info, &hl7005_chg_ops, &info->chg_props);
+	/*
+	 * The implementation is deliberately single-instance because
+	 * mtk_charger expects exactly one charger named primary_chg.
+	 */
+	mutex_lock(&hl7005_probe_lock);
+
+	if (new_client) {
+		mutex_unlock(&hl7005_probe_lock);
+		dev_err(&client->dev,
+			"another primary_chg instance is already active\n");
+		return -EBUSY;
+	}
+
+	new_client = client;
+	mutex_unlock(&hl7005_probe_lock);
+
+	/*
+	 * This read-only identity check occurs before any register write and
+	 * before charger_device_register().
+	 */
+	ret = eta6937_read_identity(&identity);
+	if (ret < 0) {
+		dev_err(&client->dev,
+			"failed to read ETA6937 identity: %d\n", ret);
+		goto err_release_client;
+	}
+
+	if ((identity & ETA6937_DEVICE_ID_MASK) != ETA6937_DEVICE_ID) {
+		dev_err(&client->dev,
+			"identity mismatch: REG03=0x%02x expected 0x50/0xf8\n",
+			identity);
+		ret = -ENODEV;
+		goto err_release_client;
+	}
+
+	/*
+	 * Request CD initially high so the physical charger remains disabled
+	 * until all safety, CV, current, and input-limit fields are valid.
+	 */
+	ret = devm_gpio_request_one(&client->dev, info->cd_gpio,
+				    GPIOF_OUT_INIT_HIGH, "eta6937-cd");
+	if (ret < 0) {
+		dev_err(&client->dev,
+			"failed to request CD GPIO %d: %d\n",
+			info->cd_gpio, ret);
+		goto err_release_client;
+	}
+
+	ret = eta6937_hw_init(info);
+	if (ret < 0) {
+		dev_err(&client->dev,
+			"ETA6937 hardware initialization failed: %d\n",
+			ret);
+		goto err_disable;
+	}
+
+	alarm_init(&info->otg_timer, ALARM_BOOTTIME,
+		   usbotg_timer_func);
+	INIT_WORK(&info->otg_kick_work, usbotg_boost_kick_work);
+	info->polling_interval = 20;
+	info->polling_enabled = false;
+	info->charge_enabled = true;
+
+	/* All safety-critical registers are valid before CD is deasserted. */
+	gpio_set_value_cansleep(info->cd_gpio, 0);
+
+	/*
+	 * Registration is intentionally last so every preceding failure
+	 * exits without leaking a charger-class device.
+	 */
+	info->chg_dev = charger_device_register(
+		"primary_chg", &client->dev, info,
+		&hl7005_chg_ops, &info->chg_props);
 
 	if (IS_ERR_OR_NULL(info->chg_dev)) {
-		pr_err("%s: register charger device failed\n", __func__);
-		ret = PTR_ERR(info->chg_dev);
-		return ret;
+		ret = info->chg_dev ? PTR_ERR(info->chg_dev) : -EINVAL;
+		dev_err(&client->dev,
+			"charger_device_register failed: %d\n", ret);
+		goto err_disable;
 	}
 
-	ret = hl7005_get_vender_code();
-
-	if (ret != 2) {
-		pr_err("%s: get vendor id failed\n", __func__);
-		return -ENODEV;
-	}
-
-#if defined(HIGH_BATTERY_VOLTAGE_SUPPORT)
-	/* ISAFE = 1250mA, VSAFE = 4.34V */
-	hl7005_reg_config_interface(0x06, 0x77);
-#else
-	hl7005_reg_config_interface(0x06, 0x70);
-#endif
-	/* kick chip watch dog */
-	hl7005_reg_config_interface(0x00, 0xC0);
-	/* TE=1, CE=0, HZ_MODE=0, OPA_MODE=0 */
-	hl7005_reg_config_interface(0x01, 0xb8);
-	hl7005_reg_config_interface(0x05, 0x03);
-	/* 146mA */
-	hl7005_reg_config_interface(0x04, 0x1A);
-
-	hl7005_dump_register(info->chg_dev);
-
-	alarm_init(&info->otg_kthread_gtimer, ALARM_BOOTTIME,
-		  usbotg_gtimer_func);
-
-	info->otg_boost_workq =
-			create_singlethread_workqueue("otg_boost_workq");
-	INIT_WORK(&info->kick_work, usbotg_boost_kick_work);
-	info->polling_interval = 20;
+	i2c_set_clientdata(client, info);
 	g_info = info;
 
+	dev_info(&client->dev,
+		 "ETA6937 detected: REG03=0x%02x, registered primary_chg\n",
+		 identity);
+
+	/* Dump failures are diagnostic and do not invalidate the probe. */
+	hl7005_dump_register(info->chg_dev);
+
+	return 0;
+
+err_disable:
+	gpio_set_value_cansleep(info->cd_gpio, 1);
+	info->charge_enabled = false;
+
+err_release_client:
+	hl7005_release_client(client);
+	return ret;
+}
+
+static int hl7005_driver_remove(struct i2c_client *client)
+{
+	struct hl7005_info *info = i2c_get_clientdata(client);
+
+	if (!info)
+		return 0;
+
+	/* Hardware disable is asserted before unregistering software state. */
+	gpio_set_value_cansleep(info->cd_gpio, 1);
+	info->charge_enabled = false;
+	info->polling_enabled = false;
+
+	alarm_cancel(&info->otg_timer);
+	cancel_work_sync(&info->otg_kick_work);
+
+	if (info->chg_dev)
+		charger_device_unregister(info->chg_dev);
+
+	mutex_lock(&hl7005_probe_lock);
+
+	if (g_info == info)
+		g_info = NULL;
+
+	if (new_client == client)
+		new_client = NULL;
+
+	mutex_unlock(&hl7005_probe_lock);
+
+	i2c_set_clientdata(client, NULL);
 	return 0;
 }
 
+static const struct i2c_device_id hl7005_i2c_id[] = {
+	{ "hl7005", 0 },
+	{ "eta6937", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(i2c, hl7005_i2c_id);
+
 #ifdef CONFIG_OF
 static const struct of_device_id hl7005_of_match[] = {
-	{.compatible = "mediatek,hl7005_chg_driver"},
-	{.compatible = "halo,hl7005"},
-	{},
+	{ .compatible = "mediatek,hl7005_chg_driver" },
+	{ .compatible = "halo,hl7005" },
+	{ .compatible = "hcn,eta6937" },
+	{ }
 };
-#else
-static struct i2c_board_info i2c_hl7005 __initdata = {
-	I2C_BOARD_INFO("hl7005", (hl7005_SLAVE_ADDR_WRITE >> 1))
-};
+MODULE_DEVICE_TABLE(of, hl7005_of_match);
 #endif
 
 static struct i2c_driver hl7005_driver = {
 	.driver = {
 		.name = "hl7005",
-#ifdef CONFIG_OF
-		.of_match_table = hl7005_of_match,
-#endif
-		},
+		.of_match_table = of_match_ptr(hl7005_of_match),
+	},
 	.probe = hl7005_driver_probe,
+	.remove = hl7005_driver_remove,
 	.id_table = hl7005_i2c_id,
 };
 
 static int __init hl7005_init(void)
 {
-
-	if (i2c_add_driver(&hl7005_driver) != 0)
-		pr_info("Failed to register hl7005 i2c driver.\n");
-	else
-		pr_info("Success to register hl7005 i2c driver.\n");
-
-	return 0;
+	return i2c_add_driver(&hl7005_driver);
 }
 
 static void __exit hl7005_exit(void)
@@ -948,6 +1023,7 @@ static void __exit hl7005_exit(void)
 
 module_init(hl7005_init);
 module_exit(hl7005_exit);
+
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("I2C hl7005 Driver");
-MODULE_AUTHOR("Henry Chen<henryc.chen@mediatek.com>");
+MODULE_DESCRIPTION("ETA6937 charger-class driver");
+MODULE_AUTHOR("MediaTek Inc.; ETA6937 corrections");
