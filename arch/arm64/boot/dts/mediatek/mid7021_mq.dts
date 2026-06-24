@@ -60,6 +60,19 @@
  * on this tablet. Leave amp out until confirmed; mt6357 codec comes from base.
  */
 
+/* Audio speaker amp - CONFIRMED 2026-06-23 from v7a live DT (root su):
+ * i2c3@1100f000/speaker_amp@34, compatible mediatek,speaker_amp, reg 0x34,
+ * driver-bound on stock v7a via mtk-soc-speaker-amp.c (Speaker_Amp_Switch kctl).
+ * aw87519@58 on i2c6 is declared but UNDRIVEN on v7a -> donor red herring.
+ */
+&i2c3 {
+	speaker_amp@34 {
+		compatible = "mediatek,speaker_amp";
+		reg = <0x34>;
+		status = "okay";
+	};
+};
+
 /* Board peripheral dtsis (these ARE correct for mid7021) ----------------- */
 #include "mediatek/cust_mt6765_camera_mid7021.dtsi"
 #include "mediatek/cust_mt6765_touch_mid7021.dtsi"
