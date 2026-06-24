@@ -539,6 +539,12 @@ static int get_vbus_voltage(struct mtk_charger_type *info,
 }
 
 
+/* MID7021: the new charger framework dropped the old battery_common_fg_20
+ * mt_usb_connect() call, so the MUSB gadget session never powered on a PC
+ * port (no adb/MTP enumeration). Re-wire connect/disconnect from charger-type. */
+extern void mt_usb_connect(void);
+extern void mt_usb_disconnect(void);
+
 void do_charger_detect(struct mtk_charger_type *info, bool en)
 {
 	union power_supply_propval prop_online, prop_type, prop_usb_type;
@@ -581,9 +587,14 @@ static void do_charger_detection_work(struct work_struct *data)
 		PMIC_RGS_CHRDET_SHIFT);
 
 	pr_notice("%s: chrdet:%d\n", __func__, chrdet);
-	if (chrdet)
+	if (chrdet) {
 		do_charger_detect(info, chrdet);
-	else {
+		/* MID7021: power the MUSB gadget for adb/MTP when on a PC (SDP/CDP) */
+		if (info->type == POWER_SUPPLY_USB_TYPE_SDP ||
+		    info->type == POWER_SUPPLY_USB_TYPE_CDP)
+			mt_usb_connect();
+	} else {
+		mt_usb_disconnect();
 		hw_bc11_done(info);
 		/* 8 = KERNEL_POWER_OFF_CHARGING_BOOT */
 		/* 9 = LOW_POWER_OFF_CHARGING_BOOT */
