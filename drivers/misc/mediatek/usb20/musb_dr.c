@@ -336,6 +336,38 @@ static int mt_usb_role_sx_set(struct device *dev, enum usb_role role)
 	return 0;
 }
 
+/* MID7021: drive the dual-role switch to DEVICE/NONE from charger-type
+ * detection on this non-TCPC build (no Type-C class to set the role).
+ * Mirrors cmode_store(): mtk_musb->otg_sx points into the glue's embedded
+ * otg_sx, so container_of() recovers the glue + its dev. Calling
+ * mt_usb_role_sx_set(USB_ROLE_DEVICE) runs the full attach (PHY device mode,
+ * MUSB_VBUS_VALID, usb_connected=1, mt_usb_connect) so the host sees a
+ * pull-up and issues a bus reset -> B_PERIPHERAL -> enumeration -> adb. */
+static void mt_usb_select_role(enum usb_role role)
+{
+	struct otg_switch_mtk *otg_sx;
+	struct mt_usb_glue *glue;
+
+	if (!mtk_musb || !mtk_musb->otg_sx)
+		return;
+
+	otg_sx = mtk_musb->otg_sx;
+	glue = container_of(otg_sx, struct mt_usb_glue, otg_sx);
+	mt_usb_role_sx_set(glue->dev, role);
+}
+
+void mt_usb_select_device_role(void)
+{
+	mt_usb_select_role(USB_ROLE_DEVICE);
+}
+EXPORT_SYMBOL_GPL(mt_usb_select_device_role);
+
+void mt_usb_select_none_role(void)
+{
+	mt_usb_select_role(USB_ROLE_NONE);
+}
+EXPORT_SYMBOL_GPL(mt_usb_select_none_role);
+
 static enum usb_role mt_usb_role_sx_get(struct device *dev)
 {
 	struct mt_usb_glue *glue = dev_get_drvdata(dev);
