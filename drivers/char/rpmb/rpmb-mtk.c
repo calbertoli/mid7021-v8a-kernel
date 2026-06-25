@@ -2670,9 +2670,9 @@ static int rpmb_gp_open_session(void)
 		else
 			break;
 
-	} while (cnt < 60);
+	} while (cnt < 3); /* MID7021 v8a: cap rpmb TEE-session retry; grafted Trustonic has no RPMB TA, so fail in ~6s not ~120s boot stall */
 
-	if (cnt >= 60)
+	if (cnt >= 3)
 		MSG(ERR, "%s, open session failed!!!\n", __func__);
 
 
