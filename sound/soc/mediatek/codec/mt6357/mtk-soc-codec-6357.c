@@ -90,6 +90,7 @@ extern int isphonecall;  // zane added for  load phonecall PA  parameters
 
 static void Voice_Amp_Change(bool enable);
 static void Speaker_Amp_Change(bool enable);
+static void Headset_Speaker_Amp_Change(bool enable);
 static struct mt6357_codec_priv *mCodec_data;
 static struct mt6357_priv *mCodec_priv;
 static unsigned int mBlockSampleRate[AUDIO_ANALOG_DEVICE_INOUT_MAX] = {
@@ -3569,6 +3570,18 @@ static int Voice_Amp_Set(struct snd_kcontrol *kcontrol,
 
 static void Speaker_Amp_Change(bool enable)
 {
+	if (mtk_spk_get_type() == MTK_SPK_NOT_SMARTPA) {
+		/*
+		 * MID7021 uses the mt6357 internal class-AB speaker amp.
+		 * The lineout-only speaker path below is for external PA boards;
+		 * the internal amp needs the HP+SPK bridge power/routing sequence.
+		 */
+		pr_info("%s(), internal class-AB HP+SPK path enable %d\n",
+			__func__, enable);
+		Headset_Speaker_Amp_Change(enable);
+		return;
+	}
+
 	if (enable) {
 		if (GetDLStatus() == false)
 			TurnOnDacPower(AUDIO_ANALOG_DEVICE_OUT_SPEAKERL);
