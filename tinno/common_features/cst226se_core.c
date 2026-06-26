@@ -153,7 +153,7 @@ static irqreturn_t cst_irq_thread(int irq, void *dev_id)
 	struct cst_ts_data *ts = dev_id;
 	u8 reg = 0x00;
 	u8 buf[CST_REPORT_LEN] = { 0 };
-	u8 ack[3] = { 0x00, 0xab, 0x00 };
+	u8 ack[3] = { 0xd0, 0x00, 0xab };
 	unsigned int active = 0;
 	int num, i, idx;
 
@@ -206,7 +206,7 @@ static irqreturn_t cst_irq_thread(int irq, void *dev_id)
 	input_mt_report_pointer_emulation(tpd->dev, true);
 	input_sync(tpd->dev);
 
-	/* CST acknowledge: clear status so the next IRQ fires */
+	/* CST acknowledge: native Hynitron clear sequence for the D0 report page. */
 	cst_write(ts->client, ack, 3);
 out:
 	return IRQ_HANDLED;
