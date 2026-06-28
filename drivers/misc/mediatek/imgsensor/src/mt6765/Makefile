@@ -90,3 +90,5 @@ endif
 subdir-ccflags-y +=  -I$(TINNO_PRODUCT_DEV_INFO_PATH)
 
 #subdir-ccflags-y +=  -DNO_CLK_METER
+subdir-ccflags-y += -DMID7021_STAGE_C2599_HOOKS
+# (removed) c2599 now built + probed via CONFIG_CUSTOM_KERNEL_IMGSENSOR FILTER_DRV (was double-build)
