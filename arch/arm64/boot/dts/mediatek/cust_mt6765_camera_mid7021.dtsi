@@ -335,11 +335,6 @@
 	 * Replace with exact MID7021 sensor IDs after c2599/gc02m2/ov02b10/bf2253l
 	 * kernel driver sources are imported.
 	 */
-	cam0_enable_sensor = "gc02m1_tsp_p410ae_mipi_raw";
-	cam1_enable_sensor = "gc02m1_tsp_p410ae_mipi_raw";
-	cam2_enable_sensor = "gc02m1_tsp_p410ae_mipi_raw";
-	cam3_enable_sensor = "gc02m1_tsp_p410ae_mipi_raw";
-	cam4_enable_sensor = "gc02m1_tsp_p410ae_mipi_raw";
 	status = "okay";
 
 };
