@@ -92,11 +92,17 @@ void kalSetDrvEmiMpuProtection(phys_addr_t emiPhyBase, uint32_t offset,
 	/*set MPU for EMI share Memory */
 	region_info.start = emiPhyBase + offset;
 	region_info.end = emiPhyBase + offset + size - 1;
-	region_info.region = 29;
-	SET_ACCESS_PERMISSION(region_info.apc, LOCK, FORBIDDEN, FORBIDDEN,
+	/*
+	 * MT6765 connac1x uses EMI MPU domain 2 for CONNSYS WiFi PDMA.
+	 * Keep this layout byte-for-byte equivalent to the working v7a module:
+	 * region 24, AP (domain 0) and WiFi PDMA (domain 2) accessible, locked.
+	 */
+	region_info.region = 24;
+	SET_ACCESS_PERMISSION(region_info.apc, LOCK,
 			      FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
 			      FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
-			      FORBIDDEN, FORBIDDEN, FORBIDDEN, NO_PROTECTION,
+			      FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
+			      FORBIDDEN, NO_PROTECTION,
 			      FORBIDDEN, NO_PROTECTION);
 	emi_mpu_set_protection(&region_info);
 }
