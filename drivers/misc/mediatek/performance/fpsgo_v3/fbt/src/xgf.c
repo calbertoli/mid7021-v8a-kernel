@@ -1332,7 +1332,7 @@ static void xgf_enter_state_xchg(int enable)
 		goto out;
 	}
 
-	WARN_ON(!xgf_stat_xchg_fp);
+	WARN_ON_ONCE(!xgf_stat_xchg_fp);
 
 	if (xgf_stat_xchg_fp)
 		ret = xgf_stat_xchg_fp(enable);
@@ -1525,7 +1525,7 @@ static int xgf_enter_est_runtime(int rpid, struct xgf_render *render,
 {
 	int ret;
 
-	WARN_ON(!xgf_est_runtime_fp);
+	WARN_ON_ONCE(!xgf_est_runtime_fp);
 
 	if (xgf_est_runtime_fp)
 		ret = xgf_est_runtime_fp(rpid, render, runtime, ts);
