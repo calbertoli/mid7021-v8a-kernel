@@ -76,13 +76,7 @@ static unsigned long cl_kshutdown_state[MAX_NUM_INSTANCE_MTK_COOLER_KSHUTDOWN]
 				"%s %s invokes machine_power_off\n", __func__,
 				cdev->type);
 
-		/* MID7021: a donor thermal zone false-trips this kernel-shutdown
-		 * cooler -> machine_power_off() -> mt_power_off (PWRHOLD release)
-		 * -> clean PMIC NORMOFF ~150s, BYPASSING kernel_power_off. Suppress
-		 * + log to get a boot runway and name the zone; fix the trip config. */
-		pr_emerg("=== MID7021: kshutdown SUPPRESSED cooler=%s (NOT powering off) ===\n", cdev->type);
-		dump_stack();
-		/* machine_power_off();  <-- neutered for diagnosis */
+		machine_power_off();
 	}
 
 	return 0;
