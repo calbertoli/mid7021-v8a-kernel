@@ -1100,7 +1100,7 @@ static int SCP_sensorHub_report_alt_data(struct data_unit_t *data_t)
 		return 0;
 
 	if (obj->dispatch_data_cb[alt_id] == NULL) {
-		pr_err("alt:%d don't support this flow?\n", alt_id);
+		pr_err_ratelimited("alt:%d don't support this flow?\n", alt_id);
 		return 0;
 	}
 
