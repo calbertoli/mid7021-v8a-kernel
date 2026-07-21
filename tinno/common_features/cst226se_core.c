@@ -56,6 +56,16 @@ struct cst_ts_data {
 
 static struct cst_ts_data *g_cst;
 
+/* Controller native report range per raw axis (landscape: rx=long/1024px,
+ * ry=short/600px). Firmware sets this; retune if a stock-fw reflash changes
+ * it, instead of assuming raw==panel. Writable at runtime for calibration. */
+static int nat_x = 1024;
+static int nat_y = 1024;
+static int cst_dbg;
+module_param(nat_x, int, 0644);
+module_param(nat_y, int, 0644);
+module_param(cst_dbg, int, 0644);
+
 /* ---- i2c helpers ---- */
 
 static int cst_read(struct i2c_client *client, u8 *cmd, int clen,
@@ -122,12 +132,16 @@ static void cst_reset(struct cst_ts_data *ts)
 
 static void cst_transform(struct cst_ts_data *ts, int *px, int *py)
 {
-	int x = *px, y = *py, tmp;
+	int rx = *px, ry = *py;	/* raw chip coords, native landscape res */
+	int x, y;
 
+	/* scale each raw axis from the chip's native range into the panel */
 	if (ts->pos_swap) {
-		tmp = x;
-		x = y;
-		y = tmp;
+		x = nat_y > 0 ? (int)((long)ry * ts->x_max / nat_y) : ry;
+		y = nat_x > 0 ? (int)((long)rx * ts->y_max / nat_x) : rx;
+	} else {
+		x = nat_x > 0 ? (int)((long)rx * ts->x_max / nat_x) : rx;
+		y = nat_y > 0 ? (int)((long)ry * ts->y_max / nat_y) : ry;
 	}
 	if (ts->posx_reverse)
 		x = ts->x_max - 1 - x;
@@ -136,11 +150,11 @@ static void cst_transform(struct cst_ts_data *ts, int *px, int *py)
 
 	if (x < 0)
 		x = 0;
-	if (x > ts->x_max - 1)
+	else if (x > ts->x_max - 1)
 		x = ts->x_max - 1;
 	if (y < 0)
 		y = 0;
-	if (y > ts->y_max - 1)
+	else if (y > ts->y_max - 1)
 		y = ts->y_max - 1;
 	*px = x;
 	*py = y;
@@ -177,6 +191,10 @@ static irqreturn_t cst_irq_thread(int irq, void *dev_id)
 		int x  = (buf[idx + 1] << 4) | ((buf[idx + 3] >> 4) & 0x0f);
 		int y  = (buf[idx + 2] << 4) | (buf[idx + 3] & 0x0f);
 		int p  = buf[idx + 4];
+
+		if (cst_dbg && i == 0)
+			pr_info_ratelimited("[hyn] raw x=%d y=%d (nat=%dx%d)\n",
+					    x, y, nat_x, nat_y);
 
 		cst_transform(ts, &x, &y);
 
