@@ -15,6 +15,8 @@
 #include <linux/fs.h>
 #include <linux/atomic.h>
 #include <linux/types.h>
+#include <linux/gpio.h>
+#include <linux/ktime.h>
 
 #include "kd_camera_typedef.h"
 #include "kd_imgsensor.h"
@@ -27,6 +29,10 @@
 #define LOG_INF(format, args...)    pr_err(PFX "[%s] " format, __func__, ##args)
 
 #define MULTI_WRITE 1
+
+extern void c2599_runtime_clk_dump(void);
+extern void c2599_runtime_regulator_dump(void);
+extern void c2599_runtime_mclk_dump(void);
 
 static DEFINE_SPINLOCK(imgsensor_drv_lock);
 
@@ -193,9 +199,17 @@ static kal_uint16 c2599_table_write_cmos_sensor(kal_uint16 *para, kal_uint32 len
 static kal_uint16 read_cmos_sensor(kal_uint32 addr)
 {
 	kal_uint16 get_byte = 0;
+	int ret;
 	char pu_send_cmd[2] = {(char)((addr >> 8) & 0xff), (char)(addr & 0xff)};
 
-	iReadRegI2C(pu_send_cmd, 2, (u8 *)&get_byte, 1, imgsensor.i2c_write_id);
+	c2599_runtime_mclk_dump();
+	c2599_runtime_clk_dump();
+	c2599_runtime_regulator_dump();
+	ret = iReadRegI2C(pu_send_cmd, 2, (u8 *)&get_byte, 1,
+		imgsensor.i2c_write_id);
+	pr_err("C2599DIAG SENSOR_READ reg=0x%04x id=0x%02x ret=%d data=0x%02x t_ns=%llu\n",
+		(unsigned int)addr, imgsensor.i2c_write_id, ret,
+		get_byte & 0xff, ktime_get_ns());
 	return get_byte;
 }
 
@@ -480,6 +494,7 @@ static kal_uint32 set_test_pattern_mode(kal_bool enable)
 
 static kal_uint32 get_imgsensor_id(UINT32 *sensor_id)
 {
+
 	kal_uint8 i = 0;
 	kal_uint8 retry = 2;
 

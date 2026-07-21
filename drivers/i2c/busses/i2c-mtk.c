@@ -27,6 +27,7 @@
 #include <linux/arm-smccc.h>
 #include <linux/soc/mediatek/mtk_sip_svc.h>
 #include <linux/syscore_ops.h>
+#include <linux/ktime.h>
 
 #ifdef CONFIG_MTK_GPU_SPM_DVFS_SUPPORT
 #include <mtk_kbase_spm.h>
@@ -1310,8 +1311,12 @@ static int __mt_i2c_transfer(struct mt_i2c *i2c,
 {
 	int ret;
 	int left_num = num;
+	bool c2599_diag;
+	u16 c2599_reg;
 
 	while (left_num--) {
+		c2599_diag = false;
+		c2599_reg = 0xffff;
 		/* In MTK platform the max transfer number is 4096 */
 		if (msgs->len > i2c->apdma_size) {
 			dev_dbg(i2c->dev,
@@ -1333,6 +1338,11 @@ static int __mt_i2c_transfer(struct mt_i2c *i2c,
 		i2c->addr = msgs->addr;
 		i2c->msg_len = msgs->len;
 		i2c->msg_aux_len = 0;
+		if (msgs->addr == 0x36 && msgs->len == 2 &&
+			!(msgs->flags & I2C_M_RD)) {
+			c2599_diag = true;
+			c2599_reg = ((u16)msgs->buf[0] << 8) | msgs->buf[1];
+		}
 
 		if ((left_num + 1 == num) ||
 			!mt_i2c_should_batch(msgs - 1, msgs)) {
@@ -1373,7 +1383,19 @@ static int __mt_i2c_transfer(struct mt_i2c *i2c,
 			dev_info(i2c->dev, "get hw semaphore failed.\n");
 			return -EBUSY;
 		}
+		if (c2599_diag)
+			pr_err("C2599DIAG I2C_LOW_BEGIN bus=%u addr7=0x%02x num=%d reg=0x%04x op=%d wlen=%u rlen=%u ext_timing_hz=%u repeated_start=%d t_ns=%llu\n",
+				i2c->id, i2c->addr, num, c2599_reg, i2c->op,
+				i2c->msg_len, i2c->msg_aux_len,
+				i2c->ext_data.timing,
+				i2c->op == I2C_MASTER_WRRD, ktime_get_ns());
 		ret = mt_i2c_do_transfer(i2c);
+		if (c2599_diag)
+			pr_err("C2599DIAG I2C_LOW_DONE bus=%u addr7=0x%02x reg=0x%04x ret=%d op=%d timing_reg=0x%x ltiming_reg=0x%x high_speed_reg=0x%x raw_rx=%02x t_ns=%llu\n",
+				i2c->id, i2c->addr, c2599_reg, ret, i2c->op,
+				i2c->timing_reg, i2c->ltiming_reg,
+				i2c->high_speed_reg, i2c->dma_buf.vaddr[0],
+				ktime_get_ns());
 		/* Use HW semaphore to protect device access between
 		 * AP and SPM, or SCP
 		 */

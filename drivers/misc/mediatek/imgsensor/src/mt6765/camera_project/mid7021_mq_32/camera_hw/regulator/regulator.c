@@ -15,6 +15,7 @@
 #include <linux/notifier.h>
 #include <linux/regulator/consumer.h>
 #include <linux/sched/signal.h>
+#include <linux/ktime.h>
 
 static struct REGULATOR *preg_own;
 static bool Is_Notify_call[IMGSENSOR_SENSOR_IDX_MAX_NUM][REGULATOR_TYPE_MAX_NUM];
@@ -62,6 +63,41 @@ struct REGULATOR_CTRL regulator_control[REGULATOR_TYPE_MAX_NUM] = {
 };
 
 static struct REGULATOR reg_instance;
+
+static int regulator_type_for_pin(enum IMGSENSOR_SENSOR_IDX sensor_idx,
+	enum IMGSENSOR_HW_PIN pin)
+{
+	if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
+		if (pin == IMGSENSOR_HW_PIN_AVDD)
+			return REGULATOR_TYPE_VCAMD;
+		if (pin == IMGSENSOR_HW_PIN_DVDD)
+			return REGULATOR_TYPE_VCAMA;
+	}
+
+	return REGULATOR_TYPE_VCAMA + pin - IMGSENSOR_HW_PIN_AVDD;
+}
+
+void c2599_runtime_regulator_dump(void)
+{
+	int i;
+	struct regulator *reg;
+
+	for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
+		reg = reg_instance.pregulator[IMGSENSOR_SENSOR_IDX_MAIN][i];
+		if (!reg) {
+			pr_err("C2599DIAG REG name=%s missing sw_count=%d t_ns=%llu\n",
+				regulator_control[i].pregulator_type,
+				atomic_read(&reg_instance.enable_cnt[IMGSENSOR_SENSOR_IDX_MAIN][i]),
+				ktime_get_ns());
+			continue;
+		}
+		pr_err("C2599DIAG REG name=%s enabled=%d voltage_uv=%d sw_count=%d t_ns=%llu\n",
+			regulator_control[i].pregulator_type,
+			regulator_is_enabled(reg), regulator_get_voltage(reg),
+			atomic_read(&reg_instance.enable_cnt[IMGSENSOR_SENSOR_IDX_MAIN][i]),
+			ktime_get_ns());
+	}
+}
 
 static int regulator_oc_notify(
 	struct notifier_block *nb, unsigned long event, void *data)
@@ -253,7 +289,9 @@ static enum IMGSENSOR_RETURN regulator_set(
 {
 	struct regulator     *pregulator;
 	struct REGULATOR     *preg = (struct REGULATOR *)pinstance;
-	int reg_type_offset;
+	int regulator_type;
+	int voltage;
+	int set_voltage_ret;
 	atomic_t             *enable_cnt;
 
 	if (pin > IMGSENSOR_HW_PIN_DOVDD   ||
@@ -263,35 +301,37 @@ static enum IMGSENSOR_RETURN regulator_set(
 	    sensor_idx < 0)
 		return IMGSENSOR_RETURN_ERROR;
 
-	reg_type_offset = REGULATOR_TYPE_VCAMA;
+	regulator_type = regulator_type_for_pin(sensor_idx, pin);
+	voltage = regulator_voltage[
+		pin_state - IMGSENSOR_HW_PIN_STATE_LEVEL_0];
 
 	check_for_regulator_get(preg, gimgsensor_device, sensor_idx,
-		(reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD));
+		regulator_type);
 
 	pregulator =
-		preg->pregulator[sensor_idx][
-			reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD];
+		preg->pregulator[sensor_idx][regulator_type];
 
 	enable_cnt =
-		&preg->enable_cnt[sensor_idx][
-			reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD];
+		&preg->enable_cnt[sensor_idx][regulator_type];
 
 	if (pregulator) {
 		if (pin_state != IMGSENSOR_HW_PIN_STATE_LEVEL_0) {
 
-			if (regulator_set_voltage(
-				pregulator,
-				regulator_voltage[
-				    pin_state - IMGSENSOR_HW_PIN_STATE_LEVEL_0],
-				regulator_voltage[
-				 pin_state - IMGSENSOR_HW_PIN_STATE_LEVEL_0])) {
+			set_voltage_ret = regulator_set_voltage(
+				pregulator, voltage, voltage);
+			if (set_voltage_ret) {
 
 				pr_err(
 				    "[regulator]fail to regulator_set_voltage, powertype:%d powerId:%d\n",
-				    pin,
-				    regulator_voltage[
-				   pin_state - IMGSENSOR_HW_PIN_STATE_LEVEL_0]);
+					pin, voltage);
 			}
+			if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN)
+				pr_err("C2599DIAG REG_MAP pin=%d backing=%s requested_uv=%d set_ret=%d actual_uv=%d t_ns=%llu\n",
+					pin,
+					regulator_control[regulator_type].pregulator_type,
+					voltage, set_voltage_ret,
+					regulator_get_voltage(pregulator),
+					ktime_get_ns());
 			if (regulator_enable(pregulator)) {
 				pr_err(
 				    "[regulator]fail to regulator_enable, powertype:%d powerId:%d\n",
@@ -299,7 +339,7 @@ static enum IMGSENSOR_RETURN regulator_set(
 				    regulator_voltage[
 				   pin_state - IMGSENSOR_HW_PIN_STATE_LEVEL_0]);
 				check_for_regulator_put(preg, sensor_idx,
-					(reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD));
+					regulator_type);
 
 				return IMGSENSOR_RETURN_ERROR;
 			}
@@ -313,18 +353,17 @@ static enum IMGSENSOR_RETURN regulator_set(
 					    "[regulator]fail to regulator_disable, powertype: %d\n",
 					    pin);
 					check_for_regulator_put(preg, sensor_idx,
-						(reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD));
+						regulator_type);
 
 					return IMGSENSOR_RETURN_ERROR;
 				}
 			}
-			check_for_regulator_put(preg, sensor_idx,
-				(reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD));
+			check_for_regulator_put(preg, sensor_idx, regulator_type);
 			atomic_dec(enable_cnt);
 		}
 	} else {
 		pr_err("regulator == NULL %d %d %d\n",
-		    reg_type_offset,
+		    regulator_type,
 		    pin,
 		    IMGSENSOR_HW_PIN_AVDD);
 	}
@@ -421,4 +460,3 @@ enum IMGSENSOR_RETURN imgsensor_hw_regulator_open(
 	*pdevice = &device;
 	return IMGSENSOR_RETURN_SUCCESS;
 }
-
