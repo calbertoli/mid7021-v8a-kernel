@@ -2073,7 +2073,7 @@ void halWpdmaInitTxRing(IN struct GLUE_INFO *prGlueInfo, bool fgResetHif)
 		kalDevRegWrite(prGlueInfo, prTxRing->hw_cnt_addr,
 			TX_RING_SIZE);
 
-		if (prBusInfo->tx_ring_ext_ctrl)
+		if (prBusInfo->u4DmaMask > 32 && prBusInfo->tx_ring_ext_ctrl)
 			prBusInfo->tx_ring_ext_ctrl(prGlueInfo, prTxRing, i);
 
 		DBGLOG(HAL, TRACE, "-->TX_RING_%d[0x%x]: Base=0x%x, Cnt=%d!\n",
@@ -2133,7 +2133,7 @@ void halWpdmaInitRxRing(IN struct GLUE_INFO *prGlueInfo)
 		kalDevRegWrite(prGlueInfo, prRxRing->hw_cnt_addr,
 			prRxRing->u4RingSize);
 
-		if (prBusInfo->rx_ring_ext_ctrl)
+		if (prBusInfo->u4DmaMask > 32 && prBusInfo->rx_ring_ext_ctrl)
 			prBusInfo->rx_ring_ext_ctrl(prGlueInfo, prRxRing, i);
 
 		prRxRing->fgIsDumpLog = false;
