@@ -345,9 +345,9 @@ extern struct LCM_DRIVER icili9882q_p410_hdplus_dsi_vdo_txd_lcm_drv;   //tinno a
 extern struct LCM_DRIVER nt36525ch_p410_hdplus_dsi_vdo_csot_lcm_drv;   //tinno add lcm
 extern struct LCM_DRIVER vtdr6110c_p510_hdplus_dsi_vdo_tm_lcm_drv;   //tinno add lcm
 
-/* MID7021 stub LCM externs (temporary) */
-extern struct LCM_DRIVER SAT070HK30I21Y03_lcm_drv;
+/* MID7021 LCMs; MJT070032M is the stock-active panel on the reference unit. */
 extern struct LCM_DRIVER MJT070032M_lcm_drv;
+extern struct LCM_DRIVER SAT070HK30I21Y03_lcm_drv;
 extern struct LCM_DRIVER F070A67_601_lcm_drv;
 extern struct LCM_DRIVER RS070WS105A4_lcm_drv;
 #ifdef BUILD_LK

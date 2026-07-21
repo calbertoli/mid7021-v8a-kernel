@@ -21,12 +21,12 @@ enum LCM_DSI_MODE_CON lcm_dsi_mode;
 #define LCD_HW_ID_STATUS_ERROR  0x03
 
 struct LCM_DRIVER *lcm_driver_list[] = {
-	/* MID7021 stub LCM entries (temporary; replace with genuine Tinno panels) */
-#if defined(SAT070HK30I21Y03)
-	&SAT070HK30I21Y03_lcm_drv,
-#endif
+	/* MID7021 stock-active panel first so a stale donor LK name falls back safely. */
 #if defined(MJT070032M)
 	&MJT070032M_lcm_drv,
+#endif
+#if defined(SAT070HK30I21Y03)
+	&SAT070HK30I21Y03_lcm_drv,
 #endif
 #if defined(F070A67_601)
 	&F070A67_601_lcm_drv,

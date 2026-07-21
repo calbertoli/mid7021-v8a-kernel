@@ -43,16 +43,27 @@
 &chosen {
 	atag,videolfb-islcmfound = <1>;
 	atag,videolfb-islcm_inited = <0>;
-	/* atag,videolfb-lcmname = "TODO_mid7021_panel_drv"; */
+	atag,videolfb-lcmname = "MJT070032M";
 };
 
-/* LCD backlight ---------------------------------------------------------- *
- * TODO(backlight): the tablet has a backlight, but the enable/PWM GPIOs are
- * NOT yet confirmed. p410ae used GPIO175/150/169 — DO NOT assume those here;
- * toggling wrong GPIOs can mis-drive the panel. Extract the real backlight
- * GPIO/PWM nodes from mid7021_live.dts before enabling, then add the
- * &lcm_pins_bl_en / &pio pin groups that the LCM driver expects.
- */
+/* Stock DTBO and expdb prove MJT070032M, reset GPIO45, power GPIO172, and
+ * MT6357 VIBR LDO at 1.8 V; the existing MediaTek LCD LED keeps PWM control. */
+&odm {
+	panel1@1 {
+		compatible = "MJT070032M";
+		gpio_lcd_rst = <&pio 45 0>;
+		gpio_lcd_pwr = <&pio 172 0>;
+		max-brightness = <230>;
+		lcm_vddio-supply = <&mt_pmic_vibr_ldo_reg>;
+		status = "okay";
+	};
+};
+
+&mt_pmic_vibr_ldo_reg {
+	regulator-min-microvolt = <1800000>;
+	regulator-max-microvolt = <1800000>;
+	regulator-active-discharge = <1>;
+};
 
 /* Audio ------------------------------------------------------------------ *
  * TODO(audio): confirm speaker amp from live DTS. p410ae used AWINIC AW87xxx

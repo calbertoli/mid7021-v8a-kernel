@@ -5,6 +5,13 @@
 #ifndef BUILD_LK
 #include <linux/string.h>
 #include <linux/kernel.h>
+#include <linux/err.h>
+#include <linux/gpio.h>
+#include <linux/of.h>
+#include <linux/of_gpio.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <linux/regulator/consumer.h>
 #endif
 
 #include "lcm_drv.h"
@@ -438,6 +445,144 @@ static void lcm_set_util_funcs(const struct LCM_UTIL_FUNCS *util)
 }
 
 
+
+#ifndef BUILD_LK
+static int sat_lcd_pwr_gpio = -EINVAL;
+static int sat_lcd_rst_gpio = -EINVAL;
+static struct regulator *sat_lcm_vddio;
+static int sat_lcm_vddio_enabled;
+static int sat_power_ready;
+
+static void sat_set_gpio(int gpio, int value)
+{
+	if (gpio_is_valid(gpio))
+		gpio_set_value(gpio, value);
+}
+
+static int sat070_power_lazy_init(void)
+{
+	struct device_node *np;
+	struct platform_device *pdev;
+	int ret;
+
+	if (sat_power_ready)
+		return 0;
+
+	np = of_find_compatible_node(NULL, NULL, "MJT070032M");
+	if (!np) {
+		pr_err("SAT070HK30I21Y03: panel power node MJT070032M not found\n");
+		return -ENODEV;
+	}
+
+	sat_lcd_pwr_gpio = of_get_named_gpio(np, "gpio_lcd_pwr", 0);
+	sat_lcd_rst_gpio = of_get_named_gpio(np, "gpio_lcd_rst", 0);
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+
+	if (!gpio_is_valid(sat_lcd_pwr_gpio) || !gpio_is_valid(sat_lcd_rst_gpio)) {
+		pr_err("SAT070HK30I21Y03: invalid panel gpios pwr=%d rst=%d\n",
+			sat_lcd_pwr_gpio, sat_lcd_rst_gpio);
+		if (pdev)
+			put_device(&pdev->dev);
+		return -EINVAL;
+	}
+
+	ret = gpio_request_one(sat_lcd_pwr_gpio, GPIOF_OUT_INIT_HIGH, "sat070-lcd-pwr");
+	if (ret && ret != -EBUSY)
+		pr_err("SAT070HK30I21Y03: gpio_lcd_pwr request failed: %d\n", ret);
+	ret = gpio_request_one(sat_lcd_rst_gpio, GPIOF_OUT_INIT_HIGH, "sat070-lcd-rst");
+	if (ret && ret != -EBUSY)
+		pr_err("SAT070HK30I21Y03: gpio_lcd_rst request failed: %d\n", ret);
+
+	if (pdev) {
+		sat_lcm_vddio = regulator_get(&pdev->dev, "lcm_vddio");
+		put_device(&pdev->dev);
+	} else {
+		sat_lcm_vddio = regulator_get(NULL, "vibr");
+	}
+	if (IS_ERR(sat_lcm_vddio)) {
+		pr_err("SAT070HK30I21Y03: lcm_vddio regulator get failed: %ld\n",
+			PTR_ERR(sat_lcm_vddio));
+		sat_lcm_vddio = NULL;
+	} else {
+		ret = regulator_set_voltage(sat_lcm_vddio, 1800000, 1800000);
+		if (ret)
+			pr_err("SAT070HK30I21Y03: lcm_vddio set_voltage failed: %d\n", ret);
+		if (regulator_is_enabled(sat_lcm_vddio) <= 0) {
+			ret = regulator_enable(sat_lcm_vddio);
+			if (ret)
+				pr_err("SAT070HK30I21Y03: lcm_vddio initial enable failed: %d\n", ret);
+			else
+				sat_lcm_vddio_enabled = 1;
+		}
+	}
+
+	sat_power_ready = 1;
+	pr_info("SAT070HK30I21Y03: panel power handles ready pwr=%d rst=%d vddio=%pK\n",
+		sat_lcd_pwr_gpio, sat_lcd_rst_gpio, sat_lcm_vddio);
+	return 0;
+}
+
+static void sat070_lcm_suspend_power(void)
+{
+	int ret;
+
+	ret = sat070_power_lazy_init();
+	if (ret)
+		return;
+
+	pr_info("SAT070HK30I21Y03: self-contained suspend_power pwr=%d rst=%d vddio=%pK\n",
+		sat_lcd_pwr_gpio, sat_lcd_rst_gpio, sat_lcm_vddio);
+	sat_set_gpio(sat_lcd_pwr_gpio, 0);
+	MDELAY(5);
+	if (!IS_ERR_OR_NULL(sat_lcm_vddio)) {
+		if (!sat_lcm_vddio_enabled) {
+			ret = regulator_enable(sat_lcm_vddio);
+			if (!ret)
+				sat_lcm_vddio_enabled = 1;
+		}
+		if (sat_lcm_vddio_enabled) {
+			ret = regulator_disable(sat_lcm_vddio);
+			if (ret)
+				pr_err("SAT070HK30I21Y03: lcm_vddio disable failed: %d\n", ret);
+			else
+				sat_lcm_vddio_enabled = 0;
+		}
+	}
+	MDELAY(5);
+	sat_set_gpio(sat_lcd_rst_gpio, 0);
+}
+
+static void sat070_lcm_resume_power(void)
+{
+	int ret;
+
+	ret = sat070_power_lazy_init();
+	if (ret)
+		return;
+
+	pr_info("SAT070HK30I21Y03: self-contained resume_power pwr=%d rst=%d vddio=%pK\n",
+		sat_lcd_pwr_gpio, sat_lcd_rst_gpio, sat_lcm_vddio);
+	if (!IS_ERR_OR_NULL(sat_lcm_vddio) && !sat_lcm_vddio_enabled) {
+		ret = regulator_enable(sat_lcm_vddio);
+		if (ret) {
+			pr_err("SAT070HK30I21Y03: lcm_vddio enable failed: %d\n", ret);
+			return;
+		}
+		sat_lcm_vddio_enabled = 1;
+	}
+	MDELAY(10);
+	sat_set_gpio(sat_lcd_rst_gpio, 1);
+	MDELAY(10);
+	sat_set_gpio(sat_lcd_rst_gpio, 0);
+	MDELAY(10);
+	sat_set_gpio(sat_lcd_rst_gpio, 1);
+	MDELAY(40);
+	sat_set_gpio(sat_lcd_pwr_gpio, 1);
+	MDELAY(10);
+}
+#endif
+
 static void lcm_get_params(struct LCM_PARAMS *params)
 {
 	memset(params, 0, sizeof(struct LCM_PARAMS));
@@ -600,5 +745,9 @@ struct LCM_DRIVER SAT070HK30I21Y03_lcm_drv =
 	.init           = lcm_init,
 	.suspend        = lcm_suspend,
 	.resume         = lcm_resume,
+#ifndef BUILD_LK
+	.suspend_power = sat070_lcm_suspend_power,
+	.resume_power  = sat070_lcm_resume_power,
+#endif
 	.compare_id     = lcm_compare_id,
 };
