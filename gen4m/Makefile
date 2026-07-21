@@ -928,3 +928,9 @@ $(MODULE_NAME)-objs  += $(NAN_SEC_OBJS)
 ifneq ($(findstring UT_TEST_MODE,$(MTK_COMBO_CHIP)),)
 include $(src)/test/ut.make
 endif
+
+ccflags-y += -Wno-error -Wno-unused-but-set-variable -Wno-unused-variable # connsys-build-fix
+
+ccflags-y += -DCFG_MTK_ANDROID_EMI=1 # emifix
+
+ccflags-y += -I/home/poca/mid7021/connsys_src/common/common_main/include # wmt-inc-fix
