@@ -2,3 +2,13 @@
 *.bak
 out/
 mtk_battery_table.h.moto_bak
+
+# build artifacts & investigation backups (added 2026-07-21)
+*.log
+out_cam/
+out_camg/
+*.pre-bake
+*.pre_codex_*
+*.pre-touch-*
+*.bak_ring
+.missing-syscalls.d
