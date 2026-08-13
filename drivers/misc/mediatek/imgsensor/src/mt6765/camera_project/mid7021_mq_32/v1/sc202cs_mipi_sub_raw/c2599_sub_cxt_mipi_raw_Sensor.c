@@ -1,5 +1,5 @@
 /*
- * c2599_main_cxt_mipi_raw_Sensor.c
+ * c2599_sub_cxt_mipi_raw_Sensor.c
  * MID7021 main camera (c2599, 2MP, MIPI 1-lane, i2c 7-bit 0x36 / 8-bit 0x6c).
  * Register tables captured live from the v7a stock driver via mtk_i2c_transfer kprobe (2026-06-27).
  * Adapted onto the MTK imgsensor framework using the gc02m1 driver as a structural template.
@@ -23,9 +23,9 @@
 #include "kd_imgsensor_define.h"
 #include "kd_imgsensor_errcode.h"
 
-#include "c2599_main_cxt_mipi_raw_Sensor.h"
+#include "c2599_sub_cxt_mipi_raw_Sensor.h"
 
-#define PFX "c2599_main_camera_sensor_kd"
+#define PFX "c2599_sub_camera_sensor_kd"
 #define LOG_INF(format, args...)    pr_err(PFX "[%s] " format, __func__, ##args)
 
 #define MULTI_WRITE 1
@@ -51,7 +51,7 @@ static DEFINE_SPINLOCK(imgsensor_drv_lock);
  * so the ISP was told to expect timing the sensor never produced (no SOF).
  */
 static struct imgsensor_info_struct imgsensor_info = {
-	.sensor_id = C2599_MAIN_CXT_SENSOR_ID,    /* 0x2599 */
+	.sensor_id = C2599_SUB_CXT_SENSOR_ID,    /* 0x2599 */
 	.checksum_value = 0xf7375923,
 	.pre = {
 		.pclk = 90000000,
@@ -144,7 +144,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.sensor_interface_type = SENSOR_INTERFACE_TYPE_MIPI,
 	.mipi_sensor_type = MIPI_OPHY_NCSI2,
 	.mipi_settle_delay_mode = MIPI_SETTLEDELAY_AUTO,
-	.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_B,	/* stock=0 (RAW_B), verified from stock binary 2026-08-10 */
+	.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_B,
 	.mclk = 24,
 	.mipi_lane_num = SENSOR_MIPI_1_LANE,
 	.i2c_addr_table = {0x6c, 0xff},	/* 0x6d REVERTED: adding it broke main detection (#8) */
@@ -243,14 +243,11 @@ static void set_dummy(void)
 
 static kal_uint32 return_sensor_id(void)
 {
-	/* raw silicon ID is 0x020e; report the ID the 100135925
-	 * vendor HAL has userspace support for (sc202cs_mipi_raw)
-	 */
 	kal_uint32 raw_id =
 		((read_cmos_sensor(0x0000) << 8) | read_cmos_sensor(0x0001));
 
 	if (raw_id == 0x020e)
-		return C2599_MAIN_CXT_SENSOR_ID;
+		return C2599_SUB_CXT_SENSOR_ID;
 	return raw_id;
 }
 
@@ -395,7 +392,7 @@ static void streaming_control(kal_bool enable)
 }
 
 /* === captured c2599 init/preview register table (16-bit addr, 8-bit data) === */
-kal_uint16 addr_data_pair_init_c2599[] = {
+kal_uint16 addr_data_pair_init_sub_c2599[] = {
 	/* stock writes stream-off FIRST, before soft reset (verified from stock binary 2026-08-10) */
 	0x0100, 0x00,
 	0x0103, 0x01,
@@ -481,7 +478,7 @@ kal_uint16 addr_data_pair_init_c2599[] = {
 	0x328b, 0xe9,
 	0x328d, 0x0c,
 	0x0101, 0x00,
-	0x3904, 0x00,
+	0x3904, 0x03,	/* stock SUB uses 0x03 here; main uses 0x00 (verified from stock binary) */
 	0x0343, 0x88,
 	0x0100, 0x00,
 };
@@ -489,22 +486,22 @@ kal_uint16 addr_data_pair_init_c2599[] = {
 /* preview/capture/video modes: the captured single mode is fully programmed in init;
  * stream-on is handled by streaming_control(). These re-assert stream-off→on cleanly.
  */
-kal_uint16 addr_data_pair_preview_c2599[] = {
+kal_uint16 addr_data_pair_preview_sub_c2599[] = {
 	0x0100, 0x01,
 };
 
 static void sensor_init(void)
 {
 	LOG_INF("E\n");
-	c2599_table_write_cmos_sensor(addr_data_pair_init_c2599,
-		sizeof(addr_data_pair_init_c2599) / sizeof(kal_uint16));
+	c2599_table_write_cmos_sensor(addr_data_pair_init_sub_c2599,
+		sizeof(addr_data_pair_init_sub_c2599) / sizeof(kal_uint16));
 }
 
 static void preview_setting(void)
 {
 	LOG_INF("E\n");
-	c2599_table_write_cmos_sensor(addr_data_pair_preview_c2599,
-		sizeof(addr_data_pair_preview_c2599) / sizeof(kal_uint16));
+	c2599_table_write_cmos_sensor(addr_data_pair_preview_sub_c2599,
+		sizeof(addr_data_pair_preview_sub_c2599) / sizeof(kal_uint16));
 }
 
 static void capture_setting(void)    { preview_setting(); }
@@ -922,6 +919,8 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 	struct SENSOR_WINSIZE_INFO_STRUCT *wininfo;
 	MSDK_SENSOR_REG_INFO_STRUCT *sensor_reg_data = (MSDK_SENSOR_REG_INFO_STRUCT *) feature_para;
 
+	LOG_INF("TRACE feature_id=%u\n", feature_id);
+
 	switch (feature_id) {
 	case SENSOR_FEATURE_GET_PERIOD:
 		*feature_return_para_16++ = imgsensor.line_length;
@@ -1024,6 +1023,31 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
 		set_shutter_frame_length((UINT16)(*feature_data), (UINT16)(*(feature_data + 1)));
 		break;
+	case SENSOR_FEATURE_GET_MIPI_PIXEL_RATE:
+		*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
+			imgsensor_info.pre.mipi_pixel_rate;
+		LOG_INF("stock parity: mipi_pixel_rate=%u\n",
+			imgsensor_info.pre.mipi_pixel_rate);
+		break;
+	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ_BY_SCENARIO:
+		*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
+			imgsensor_info.pre.pclk;
+		LOG_INF("stock parity: pclk_by_scenario=%u\n",
+			imgsensor_info.pre.pclk);
+		break;
+	case SENSOR_FEATURE_GET_PERIOD_BY_SCENARIO:
+		*(MUINT32 *)(uintptr_t)(*(feature_data + 1)) =
+			(imgsensor_info.pre.framelength << 16) |
+			imgsensor_info.pre.linelength;
+		LOG_INF("stock parity: period_by_scenario=%u/%u\n",
+			imgsensor_info.pre.framelength,
+			imgsensor_info.pre.linelength);
+		break;
+	case SENSOR_FEATURE_GET_BINNING_TYPE:
+		*feature_return_para_32 = 1;
+		*feature_para_len = 4;
+		LOG_INF("stock parity: binning_type=1\n");
+		break;
 	default:
 		break;
 	}
@@ -1039,7 +1063,7 @@ static struct SENSOR_FUNCTION_STRUCT sensor_func = {
 	close
 };
 
-UINT32 C2599_MAIN_CXT_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc)
+UINT32 C2599_SUB_CXT_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc)
 {
 	if (pfFunc != NULL)
 		*pfFunc = &sensor_func;

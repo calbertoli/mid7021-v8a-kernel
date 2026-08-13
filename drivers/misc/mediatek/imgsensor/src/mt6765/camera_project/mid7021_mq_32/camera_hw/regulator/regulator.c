@@ -77,6 +77,28 @@ static int regulator_type_for_pin(enum IMGSENSOR_SENSOR_IDX sensor_idx,
 	return REGULATOR_TYPE_VCAMA + pin - IMGSENSOR_HW_PIN_AVDD;
 }
 
+void c2599_runtime_regulator_dump(void)
+{
+	int i;
+	struct regulator *reg;
+
+	for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
+		reg = reg_instance.pregulator[IMGSENSOR_SENSOR_IDX_MAIN][i];
+		if (!reg) {
+			pr_err("C2599DIAG REG name=%s missing sw_count=%d t_ns=%llu\n",
+				regulator_control[i].pregulator_type,
+				atomic_read(&reg_instance.enable_cnt[IMGSENSOR_SENSOR_IDX_MAIN][i]),
+				ktime_get_ns());
+			continue;
+		}
+		pr_err("C2599DIAG REG name=%s enabled=%d voltage_uv=%d sw_count=%d t_ns=%llu\n",
+			regulator_control[i].pregulator_type,
+			regulator_is_enabled(reg), regulator_get_voltage(reg),
+			atomic_read(&reg_instance.enable_cnt[IMGSENSOR_SENSOR_IDX_MAIN][i]),
+			ktime_get_ns());
+	}
+}
+
 static int regulator_oc_notify(
 	struct notifier_block *nb, unsigned long event, void *data)
 {
@@ -303,6 +325,13 @@ static enum IMGSENSOR_RETURN regulator_set(
 				    "[regulator]fail to regulator_set_voltage, powertype:%d powerId:%d\n",
 					pin, voltage);
 			}
+			if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN)
+				pr_err("C2599DIAG REG_MAP pin=%d backing=%s requested_uv=%d set_ret=%d actual_uv=%d t_ns=%llu\n",
+					pin,
+					regulator_control[regulator_type].pregulator_type,
+					voltage, set_voltage_ret,
+					regulator_get_voltage(pregulator),
+					ktime_get_ns());
 			if (regulator_enable(pregulator)) {
 				pr_err(
 				    "[regulator]fail to regulator_enable, powertype:%d powerId:%d\n",

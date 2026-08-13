@@ -79,10 +79,10 @@ enum IMGSENSOR_RETURN imgsensor_hw_init(struct IMGSENSOR_HW *phw)
 			&phw->enable_sensor_by_index[i]) < 0) {
 			if (i == IMGSENSOR_SENSOR_IDX_MAIN)
 				phw->enable_sensor_by_index[i] =
-					"gc02m1_cxt_mipi_raw";
+					"sc202cs_mipi_raw";
 			else if (i == IMGSENSOR_SENSOR_IDX_SUB)
 				phw->enable_sensor_by_index[i] =
-					"gc02m1sub_cxt_mipi_raw";
+					"sc202cs_mipi_sub_raw";
 			else
 				phw->enable_sensor_by_index[i] = NULL;
 			pr_info("mid7021 camera fallback %s=%s\n",
@@ -107,6 +107,8 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 	struct IMGSENSOR_HW_POWER_INFO   *ppwr_info;
 	struct IMGSENSOR_HW_DEVICE       *pdev;
 	int                               pin_cnt = 0;
+	bool                              c2599_diag = false;
+	u64                               diag_start_ns = 0;
 
 	while (ppwr_seq < ppower_sequence + IMGSENSOR_HW_SENSOR_MAX_NUM &&
 		ppwr_seq->name != NULL) {
@@ -122,6 +124,13 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 
 	if (ppwr_seq->name == NULL)
 		return IMGSENSOR_RETURN_ERROR;
+
+	if (pcurr_idx && (strstr(pcurr_idx, "c2599") || strstr(pcurr_idx, "_cxt"))) {
+		c2599_diag = true;
+		diag_start_ns = ktime_get_ns();
+		pr_err("C2599DIAG POWER_BEGIN idx=%d status=%d name=%s t_ns=%llu\n",
+			sensor_idx, pwr_status, pcurr_idx, diag_start_ns);
+	}
 
 	ppwr_info = ppwr_seq->pwr_info;
 
@@ -139,6 +148,13 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 		 * psensor_pwr->id[ppwr_info->pin]);
 		 */
 
+			if (c2599_diag)
+				pr_err("C2599DIAG POWER_SET_BEGIN pin=%d state=%d delay_ms=%d elapsed_us=%llu t_ns=%llu\n",
+					ppwr_info->pin, ppwr_info->pin_state_on,
+					ppwr_info->pin_on_delay,
+					(ktime_get_ns() - diag_start_ns) / 1000,
+					ktime_get_ns());
+
 			if (pdev->set != NULL)
 				pdev->set(
 				    pdev->pinstance,
@@ -146,7 +162,17 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 				    ppwr_info->pin,
 				    ppwr_info->pin_state_on);
 
+			if (c2599_diag)
+				pr_err("C2599DIAG POWER_SET_DONE pin=%d elapsed_us=%llu t_ns=%llu\n",
+					ppwr_info->pin,
+					(ktime_get_ns() - diag_start_ns) / 1000,
+					ktime_get_ns());
 			mdelay(ppwr_info->pin_on_delay);
+			if (c2599_diag)
+				pr_err("C2599DIAG POWER_DELAY_DONE pin=%d elapsed_us=%llu t_ns=%llu\n",
+					ppwr_info->pin,
+					(ktime_get_ns() - diag_start_ns) / 1000,
+					ktime_get_ns());
 		}
 
 		ppwr_info++;
@@ -176,6 +202,10 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 	/* wait for power stable */
 	if (pwr_status == IMGSENSOR_HW_POWER_STATUS_ON)
 		mdelay(5);
+	if (c2599_diag)
+		pr_err("C2599DIAG POWER_END idx=%d status=%d elapsed_us=%llu t_ns=%llu\n",
+			sensor_idx, pwr_status,
+			(ktime_get_ns() - diag_start_ns) / 1000, ktime_get_ns());
 	return IMGSENSOR_RETURN_SUCCESS;
 }
 

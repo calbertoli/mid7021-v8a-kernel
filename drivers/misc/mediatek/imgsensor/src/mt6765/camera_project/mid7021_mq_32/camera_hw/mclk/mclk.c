@@ -12,7 +12,14 @@ struct MCLK_PINCTRL_NAMES mclk_pinctrl_list[MCLK_STATE_MAX_NUM] = {
 
 
 static struct mclk mclk_instance;
+static enum MCLK_STATE c2599_mclk_state = MCLK_STATE_DISABLE;
 
+void c2599_runtime_mclk_dump(void)
+{
+	pr_err("C2599DIAG MCLK_PIN sensor_idx=0 selected_state=%s t_ns=%llu\n",
+		c2599_mclk_state == MCLK_STATE_ENABLE ? "on" : "off",
+		ktime_get_ns());
+}
 static enum IMGSENSOR_RETURN mclk_release(void *pinstance)
 {
 	int i;
@@ -118,6 +125,13 @@ static enum IMGSENSOR_RETURN mclk_set(
 		mutex_lock(&pinctrl_mutex);
 		if (ppinctrl_state != NULL && !IS_ERR(ppinctrl_state)) {
 			pinctrl_select_state(pinst->ppinctrl, ppinctrl_state);
+			if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
+				c2599_mclk_state = state_index;
+				pr_err("C2599DIAG MCLK_SET sensor_idx=%d state=%s t_ns=%llu\n",
+					sensor_idx,
+					state_index == MCLK_STATE_ENABLE ? "on" : "off",
+					ktime_get_ns());
+			}
 		} else
 			pr_info(
 			    "%s : sensor_idx %d fail to set pinctrl, PinIdx %d, Val %d\n",
