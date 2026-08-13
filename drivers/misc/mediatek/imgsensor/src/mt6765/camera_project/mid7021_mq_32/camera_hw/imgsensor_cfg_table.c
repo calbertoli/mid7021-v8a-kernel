@@ -274,8 +274,10 @@ struct IMGSENSOR_HW_POWER_SEQ sensor_power_sequence[] = {
 #endif
 #if defined(MID7021_STAGE_C2599_HOOKS)
 	/*
-	 * Staged C2599 placeholders. Enable after importing real c2599 drivers
-	 * and validating exact voltage/power timing from MID7021 BSP sources.
+	 * C2599 power sequences VERIFIED 2026-08-10 against the stock 4.19
+	 * kernel binary (decoded sensor_power_sequence table). Both main and
+	 * sub are identical in stock. AVDD 1.8 / DVDD 2.8 looks inverted vs a
+	 * typical sensor but is what stock actually drives -- do not "fix" it.
 	 */
 	{
 		SENSOR_DRVNAME_C2599_MAIN_CXT_MIPI_RAW,
@@ -291,9 +293,16 @@ struct IMGSENSOR_HW_POWER_SEQ sensor_power_sequence[] = {
 	{
 		SENSOR_DRVNAME_C2599_SUB_CXT_MIPI_RAW,
 		{
-			{PDN, Vol_Low, 0},
+			/*
+			 * Decoded from the STOCK 4.19 kernel binary 2026-08-10
+			 * (sensor_power_sequence entry @ VA 0xc1add110):
+			 * identical to main. Previous values were a guess that
+			 * omitted DVDD entirely and used AVDD 2.8 instead of 1.8.
+			 */
+			{PDN, Vol_Low, 10},
 			{DOVDD, Vol_1800, 1},
-			{AVDD, Vol_2800, 1},
+			{AVDD, Vol_1800, 1},
+			{DVDD, Vol_2800, 1},
 			{PDN, Vol_High, 1},
 			{SensorMCLK, Vol_High, 1},
 		},

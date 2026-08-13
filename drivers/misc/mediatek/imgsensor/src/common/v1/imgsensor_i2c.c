@@ -181,12 +181,6 @@ enum IMGSENSOR_RETURN imgsensor_i2c_read(
 	pinst->msg[1].len   = read_length;
 	pinst->msg[1].buf   = pread_data;
 
-	if (id == 0x6c && write_length == 2 && read_length == 1)
-		pr_err("C2599DIAG I2C_HI_BEGIN addr7=0x%02x wlen=%u w=%02x%02x rlen=%u speed_hz=%d flags0=0x%x flags1=0x%x t_ns=%llu\n",
-			id >> 1, write_length, pwrite_data[0], pwrite_data[1],
-			read_length, speed * 1000, pinst->msg[0].flags,
-			pinst->msg[1].flags, ktime_get_ns());
-
 	if (mtk_i2c_transfer(
 	    pinst->pi2c_client->adapter,
 	    pinst->msg,
@@ -207,11 +201,6 @@ enum IMGSENSOR_RETURN imgsensor_i2c_read(
 
 		ret = IMGSENSOR_RETURN_ERROR;
 	}
-
-	if (id == 0x6c && write_length == 2 && read_length == 1)
-		pr_err("C2599DIAG I2C_HI_DONE addr7=0x%02x w=%02x%02x ret=%d data=%02x t_ns=%llu\n",
-			id >> 1, pwrite_data[0], pwrite_data[1], ret,
-			pread_data[0], ktime_get_ns());
 
 	mutex_unlock(&pi2c_cfg->i2c_mutex);
 

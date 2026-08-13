@@ -225,17 +225,6 @@ static int mid7021_reboot_notify(struct notifier_block *nb,
 	pr_emerg("[wdtk-reboot] REBOOT action=%lu reason=\"%s\" comm=%s pid=%d\n",
 		action, data ? (char *)data : "(null)",
 		current->comm, task_pid_nr(current));
-	/* MID7021 poweroff-trap (Fable 2026-06-15): the v8a wall now POWERS OFF, not
-	 * reboots. A cold power-off wipes the SRAM ring so expdb never gets a reason.
-	 * Convert SYS_POWER_OFF -> WARM reboot: SRAM survives the warm reset, LK flushes
-	 * the caller logged above into expdb on the next boot, AND it tests whether the
-	 * boot proceeds without the poweroff (cause) or loops at the same spot (symptom).
-	 * NO panic() in this path -- a panic here created the fake "30x bootloop" before. */
-	if (action == SYS_POWER_OFF) {
-		pr_emerg("[wdtk-pofftrap] intercept POWER_OFF -> warm reboot; caller comm=%s pid=%d\n",
-			current->comm, task_pid_nr(current));
-		emergency_restart();
-	}
 	return NOTIFY_DONE;
 }
 

@@ -39,15 +39,26 @@ static DEFINE_MUTEX(dummy_mutex);
 static struct work_struct dummy_work;
 
 /* define pinctrl */
-/* TODO: define pinctrl */
-#define DUMMY_PINCTRL_PIN_XXX 0
+/* MID7021: ported from stock RE 2026-08-11 (stock_flashlight_dummy_gpio_REF.txt).
+ * pin EN = enable GPIO90 (en_high/en_low); pin FLASH = pad GPIO151
+ * (flash_torch = torch current, flash_flash = flash current).
+ */
+#define DUMMY_PINCTRL_PIN_EN    0
+#define DUMMY_PINCTRL_PIN_FLASH 1
 #define DUMMY_PINCTRL_PINSTATE_LOW 0
 #define DUMMY_PINCTRL_PINSTATE_HIGH 1
-#define DUMMY_PINCTRL_STATE_XXX_HIGH "xxx_high"
-#define DUMMY_PINCTRL_STATE_XXX_LOW  "xxx_low"
+#define DUMMY_PINCTRL_STATE_EN_HIGH     "en_high"
+#define DUMMY_PINCTRL_STATE_EN_LOW      "en_low"
+#define DUMMY_PINCTRL_STATE_FLASH_FLASH "flash_flash"
+#define DUMMY_PINCTRL_STATE_FLASH_TORCH "flash_torch"
 static struct pinctrl *dummy_pinctrl;
-static struct pinctrl_state *dummy_xxx_high;
-static struct pinctrl_state *dummy_xxx_low;
+static struct pinctrl_state *dummy_en_high;
+static struct pinctrl_state *dummy_en_low;
+static struct pinctrl_state *dummy_flash_flash;
+static struct pinctrl_state *dummy_flash_torch;
+/* duty/mode, per stock dummy_set_level */
+static int dummy_duty;   /* clamped 0..8 */
+static int dummy_mode;   /* 1 or 2 */
 
 /* define usage count */
 static int use_count;
@@ -74,18 +85,30 @@ static int dummy_pinctrl_init(struct platform_device *pdev)
 		return ret;
 	}
 
-	/* TODO: Flashlight XXX pin initialization */
-	dummy_xxx_high = pinctrl_lookup_state(
-			dummy_pinctrl, DUMMY_PINCTRL_STATE_XXX_HIGH);
-	if (IS_ERR(dummy_xxx_high)) {
-		pr_info("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_XXX_HIGH);
-		ret = PTR_ERR(dummy_xxx_high);
+	/* MID7021 flashlight pin initialization (4 states) */
+	dummy_en_high = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_EN_HIGH);
+	if (IS_ERR(dummy_en_high)) {
+		pr_info("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_EN_HIGH);
+		ret = PTR_ERR(dummy_en_high);
 	}
-	dummy_xxx_low = pinctrl_lookup_state(
-			dummy_pinctrl, DUMMY_PINCTRL_STATE_XXX_LOW);
-	if (IS_ERR(dummy_xxx_low)) {
-		pr_info("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_XXX_LOW);
-		ret = PTR_ERR(dummy_xxx_low);
+	dummy_en_low = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_EN_LOW);
+	if (IS_ERR(dummy_en_low)) {
+		pr_info("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_EN_LOW);
+		ret = PTR_ERR(dummy_en_low);
+	}
+	dummy_flash_flash = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_FLASH_FLASH);
+	if (IS_ERR(dummy_flash_flash)) {
+		pr_info("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_FLASH_FLASH);
+		ret = PTR_ERR(dummy_flash_flash);
+	}
+	dummy_flash_torch = pinctrl_lookup_state(
+			dummy_pinctrl, DUMMY_PINCTRL_STATE_FLASH_TORCH);
+	if (IS_ERR(dummy_flash_torch)) {
+		pr_info("Failed to init (%s)\n", DUMMY_PINCTRL_STATE_FLASH_TORCH);
+		ret = PTR_ERR(dummy_flash_torch);
 	}
 
 	return ret;
@@ -101,13 +124,23 @@ static int dummy_pinctrl_set(int pin, int state)
 	}
 
 	switch (pin) {
-	case DUMMY_PINCTRL_PIN_XXX:
+	case DUMMY_PINCTRL_PIN_EN:
 		if (state == DUMMY_PINCTRL_PINSTATE_LOW &&
-				!IS_ERR(dummy_xxx_low))
-			pinctrl_select_state(dummy_pinctrl, dummy_xxx_low);
+				!IS_ERR(dummy_en_low))
+			pinctrl_select_state(dummy_pinctrl, dummy_en_low);
 		else if (state == DUMMY_PINCTRL_PINSTATE_HIGH &&
-				!IS_ERR(dummy_xxx_high))
-			pinctrl_select_state(dummy_pinctrl, dummy_xxx_high);
+				!IS_ERR(dummy_en_high))
+			pinctrl_select_state(dummy_pinctrl, dummy_en_high);
+		else
+			pr_info("set err, pin(%d) state(%d)\n", pin, state);
+		break;
+	case DUMMY_PINCTRL_PIN_FLASH:
+		if (state == DUMMY_PINCTRL_PINSTATE_LOW &&
+				!IS_ERR(dummy_flash_torch))
+			pinctrl_select_state(dummy_pinctrl, dummy_flash_torch);
+		else if (state == DUMMY_PINCTRL_PINSTATE_HIGH &&
+				!IS_ERR(dummy_flash_flash))
+			pinctrl_select_state(dummy_pinctrl, dummy_flash_flash);
 		else
 			pr_info("set err, pin(%d) state(%d)\n", pin, state);
 		break;
@@ -127,31 +160,39 @@ static int dummy_pinctrl_set(int pin, int state)
 /* flashlight enable function */
 static int dummy_enable(void)
 {
-	int pin = 0, state = 0;
+	/* MID7021 (ported from stock RE): torch mode — select the flash_torch pad
+	 * (torch current, safe for continuous on) then drive the enable GPIO high.
+	 * This is stock's mode-1 path. The flash-current pulse-ramp (stock mode-2,
+	 * for camera strobe brightness levels) is deferred; the torch tile only
+	 * needs on/off and the torch pad is the continuous-safe current.
+	 */
+	dummy_pinctrl_set(DUMMY_PINCTRL_PIN_FLASH, DUMMY_PINCTRL_PINSTATE_LOW);
+	dummy_pinctrl_set(DUMMY_PINCTRL_PIN_EN, DUMMY_PINCTRL_PINSTATE_HIGH);
 
-	/* TODO: wrap enable function */
-
-	return dummy_pinctrl_set(pin, state);
+	return 0;
 }
 
 /* flashlight disable function */
 static int dummy_disable(void)
 {
-	int pin = 0, state = 0;
+	/* drive enable GPIO low (en_low) */
+	dummy_pinctrl_set(DUMMY_PINCTRL_PIN_EN, DUMMY_PINCTRL_PINSTATE_LOW);
 
-	/* TODO: wrap disable function */
-
-	return dummy_pinctrl_set(pin, state);
+	return 0;
 }
 
 /* set flashlight level */
 static int dummy_set_level(int level)
 {
-	int pin = 0, state = 0;
+	/* per stock dummy_set_level: mode = (level>0)?2:1, duty clamped 0..8 */
+	dummy_mode = (level > 0) ? 2 : 1;
+	if (level >= 8)
+		level = 8;
+	else if (level <= 0)
+		level = 0;
+	dummy_duty = level;
 
-	/* TODO: wrap set level function */
-
-	return dummy_pinctrl_set(pin, state);
+	return 0;
 }
 
 /* flashlight init */

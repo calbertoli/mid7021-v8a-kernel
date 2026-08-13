@@ -525,6 +525,24 @@ static const struct chip_data mt6397_core = {
 	.cid_shift = 0,
 };
 
+static struct mt6397_chip *mt6357_pm_off;
+
+static void mt6357_power_off(void)
+{
+	int ret;
+
+	pr_notice("MID7021 poweroff: releasing MT6357 PWRHOLD\n");
+	if (!mt6357_pm_off)
+		return;
+
+	ret = regmap_update_bits(mt6357_pm_off->regmap,
+			MT6357_RG_PWRHOLD_ADDR,
+			MT6357_RG_PWRHOLD_MASK << MT6357_RG_PWRHOLD_SHIFT,
+			0);
+	if (ret)
+		pr_emerg("MID7021 poweroff: PWRHOLD write failed: %d\n", ret);
+}
+
 static int mt6397_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -629,6 +647,12 @@ static int mt6397_probe(struct platform_device *pdev)
 	if (ret) {
 		irq_domain_remove(pmic->irq_domain);
 		dev_err(&pdev->dev, "failed to add child devices: %d\n", ret);
+	}
+
+	if (!ret && pmic->chip_id == MT6357_CHIP_ID) {
+		mt6357_pm_off = pmic;
+		pm_power_off = mt6357_power_off;
+		pr_notice("MID7021 poweroff: pm_power_off=%ps\n", pm_power_off);
 	}
 
 	return ret;

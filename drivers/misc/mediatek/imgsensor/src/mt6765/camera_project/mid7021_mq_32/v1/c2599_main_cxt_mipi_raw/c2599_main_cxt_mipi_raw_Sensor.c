@@ -36,79 +36,87 @@ extern void c2599_runtime_mclk_dump(void);
 
 static DEFINE_SPINLOCK(imgsensor_drv_lock);
 
+/*
+ * Mode timing VERIFIED 2026-08-10 against the stock 4.19 kernel binary
+ * (imgsensor_mode_struct @ VA 0xc1482538 - ALT CANDIDATE): pclk 84MHz, linelength 2192,
+ * framelength 1276, mipi_pixel_rate 67.2MHz, settle 85 -> 30.03fps.
+ * Previous values (pclk/mipi 177.6MHz, framelength 3696) were internally
+ * inconsistent: they computed to 19.7fps while declaring max_framerate 300,
+ * so the ISP was told to expect timing the sensor never produced (no SOF).
+ */
 static struct imgsensor_info_struct imgsensor_info = {
 	.sensor_id = C2599_MAIN_CXT_SENSOR_ID,    /* 0x2599 */
 	.checksum_value = 0xf7375923,
 	.pre = {
-		.pclk = 177600000,
-		.linelength = 2440,
-		.framelength = 3696,
+		.pclk = 84000000,
+		.linelength = 2192,
+		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
 		.grabwindow_width = 1600,
 		.grabwindow_height = 1200,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 177600000,
+		.mipi_pixel_rate = 67200000,
 		.max_framerate = 300,
 	},
 	.cap = {
-		.pclk = 177600000,
-		.linelength = 2440,
-		.framelength = 3696,
+		.pclk = 84000000,
+		.linelength = 2192,
+		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
 		.grabwindow_width = 1600,
 		.grabwindow_height = 1200,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 177600000,
+		.mipi_pixel_rate = 67200000,
 		.max_framerate = 300,
 	},
 	.cap1 = {
-		.pclk = 177600000,
-		.linelength = 2440,
-		.framelength = 3696,
+		.pclk = 84000000,
+		.linelength = 2192,
+		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
 		.grabwindow_width = 1600,
 		.grabwindow_height = 1200,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 177600000,
+		.mipi_pixel_rate = 67200000,
 		.max_framerate = 300,
 	},
 	.normal_video = {
-		.pclk = 177600000,
-		.linelength = 2440,
-		.framelength = 3696,
+		.pclk = 84000000,
+		.linelength = 2192,
+		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
 		.grabwindow_width = 1600,
 		.grabwindow_height = 1200,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 177600000,
+		.mipi_pixel_rate = 67200000,
 		.max_framerate = 300,
 	},
 	.hs_video = {
-		.pclk = 177600000,
-		.linelength = 2440,
-		.framelength = 3696,
+		.pclk = 84000000,
+		.linelength = 2192,
+		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
 		.grabwindow_width = 1600,
 		.grabwindow_height = 1200,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 177600000,
+		.mipi_pixel_rate = 67200000,
 		.max_framerate = 300,
 	},
 	.slim_video = {
-		.pclk = 177600000,
-		.linelength = 2440,
-		.framelength = 3696,
+		.pclk = 84000000,
+		.linelength = 2192,
+		.framelength = 1276,
 		.startx = 0,
 		.starty = 0,
 		.grabwindow_width = 1600,
 		.grabwindow_height = 1200,
 		.mipi_data_lp2hs_settle_dc = 85,
-		.mipi_pixel_rate = 177600000,
+		.mipi_pixel_rate = 67200000,
 		.max_framerate = 300,
 	},
 	.margin = 16,
@@ -130,10 +138,10 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.sensor_interface_type = SENSOR_INTERFACE_TYPE_MIPI,
 	.mipi_sensor_type = MIPI_OPHY_NCSI2,
 	.mipi_settle_delay_mode = MIPI_SETTLEDELAY_AUTO,
-	.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_R,
+	.sensor_output_dataformat = SENSOR_OUTPUT_FORMAT_RAW_B,	/* stock=0 (RAW_B), verified from stock binary 2026-08-10 */
 	.mclk = 24,
 	.mipi_lane_num = SENSOR_MIPI_1_LANE,
-	.i2c_addr_table = {0x6c, 0xff},
+	.i2c_addr_table = {0x6c, 0xff},	/* 0x6d REVERTED: adding it broke main detection (#8) */
 	.i2c_speed = 400,
 };
 
@@ -229,7 +237,8 @@ static void set_dummy(void)
 
 static kal_uint32 return_sensor_id(void)
 {
-	return ((read_cmos_sensor(0x0000) << 8) | read_cmos_sensor(0x0001));
+	return ((read_cmos_sensor(0x0000) << 8) |
+		read_cmos_sensor(0x0001));
 }
 
 static void set_max_framerate(UINT16 framerate, kal_bool min_framelength_en)
@@ -360,6 +369,8 @@ static void streaming_control(kal_bool enable)
 
 /* === captured c2599 init/preview register table (16-bit addr, 8-bit data) === */
 kal_uint16 addr_data_pair_init_c2599[] = {
+	/* stock writes stream-off FIRST, before soft reset (verified from stock binary 2026-08-10) */
+	0x0100, 0x00,
 	0x0103, 0x01,
 	0x0400, 0x41,
 	0x0401, 0xa5,
@@ -446,15 +457,6 @@ kal_uint16 addr_data_pair_init_c2599[] = {
 	0x3904, 0x00,
 	0x0343, 0x88,
 	0x0100, 0x00,
-	0x0100, 0x00,
-	0x0340, 0x0e,
-	0x0341, 0x70,
-	0x0202, 0x0e,
-	0x0203, 0x68,
-	0xe01a, 0x3f,
-	0xe01d, 0x3f,
-	0xe020, 0xb0,
-	0x340f, 0x13,
 };
 
 /* preview/capture/video modes: the captured single mode is fully programmed in init;
@@ -1016,3 +1018,10 @@ UINT32 C2599_MAIN_CXT_MIPI_RAW_SensorInit(struct SENSOR_FUNCTION_STRUCT **pfFunc
 		*pfFunc = &sensor_func;
 	return ERROR_NONE;
 }
+
+/* torch-bake 2026-08-13: define the 3 dangling c2599 debug-dump refs as no-ops so
+ * vmlinux links (they were extern-declared across the c2599 sensors but never
+ * defined — leftover camera-speed debug). Empty bodies = deployed #20 behavior. */
+void c2599_runtime_mclk_dump(void) {}
+void c2599_runtime_clk_dump(void) {}
+void c2599_runtime_regulator_dump(void) {}

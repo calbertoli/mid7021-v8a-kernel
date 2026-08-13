@@ -10,33 +10,6 @@
 #include "imgsensor_clk.h"
 #include <linux/clk-provider.h>
 
-void c2599_runtime_clk_dump(void)
-{
-	static const char * const names[] = {
-		"camtg_sel", "clk26m", "clk26m_d2", "univpll_d26"
-	};
-	struct clk *clk;
-	struct clk *parent;
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(names); i++) {
-		clk = __clk_lookup(names[i]);
-		if (!clk) {
-			pr_err("C2599DIAG CLK name=%s missing t_ns=%llu\n",
-				names[i], ktime_get_ns());
-			continue;
-		}
-		parent = clk_get_parent(clk);
-		pr_err("C2599DIAG CLK name=%s enabled=%d enable_count=%u rate_hz=%lu parent=%s parent_rate_hz=%lu t_ns=%llu\n",
-			names[i], __clk_is_enabled(clk),
-			__clk_get_enable_count(clk), clk_get_rate(clk),
-			parent ? __clk_get_name(parent) : "none",
-			parent ? clk_get_rate(parent) : 0, ktime_get_ns());
-	}
-	pr_err("C2599DIAG CLK_METER ckgen7_khz=%u t_ns=%llu\n",
-		mt_get_ckgen_freq(7), ktime_get_ns());
-}
-
 
 /*by platform settings and elements should not be reordered */
 char *gimgsensor_mclk_name[IMGSENSOR_CCF_MAX_NUM] = {
@@ -210,10 +183,6 @@ int imgsensor_clk_set(
 		FREQ_6MHZ, FREQ_12MHZ, FREQ_13MHZ, FREQ_24MHZ,
 		FREQ_26MHZ, FREQ_48MHZ, FREQ_52MHZ };
 
-	if (pmclk->TG == IMGSENSOR_CCF_MCLK_TOP_CAMTG_SEL)
-		pr_err("C2599DIAG CLK_SET_BEGIN tg=%d freq_mhz=%d on=%d t_ns=%llu\n",
-			pmclk->TG, pmclk->freq, pmclk->on, ktime_get_ns());
-
 	for (mclk_index = MCLK_ENU_START; mclk_index < MCLK_MAX; mclk_index++) {
 		if (pmclk->freq == supported_mclk_freq[mclk_index])
 			break;
@@ -274,14 +243,6 @@ int imgsensor_clk_set(
 		clk_disable_unprepare(pclk->imgsensor_ccf[mclk_index]);
 		atomic_dec(&pclk->enable_cnt[mclk_index]);
 	}
-
-	if (pmclk->TG == IMGSENSOR_CCF_MCLK_TOP_CAMTG_SEL)
-		pr_err("C2599DIAG CLK_SET_DONE tg=%d freq_mhz=%d on=%d ret=%d rate_hz=%lu enabled=%d count=%u meter_khz=%u t_ns=%llu\n",
-			pmclk->TG, pmclk->freq, pmclk->on, ret,
-			clk_get_rate(pclk->imgsensor_ccf[pmclk->TG]),
-			__clk_is_enabled(pclk->imgsensor_ccf[pmclk->TG]),
-			__clk_get_enable_count(pclk->imgsensor_ccf[pmclk->TG]),
-			mt_get_ckgen_freq(7), ktime_get_ns());
 
 	return ret;
 }
